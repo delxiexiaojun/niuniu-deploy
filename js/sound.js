@@ -1,8 +1,9 @@
 /*
- * 音效与语音播报（无任何音频资源文件）：
- * - 音效用 Web Audio 现场合成（发牌噪声、亮牌、定庄叮、胜/负旋律、按钮音）
- * - 报点数用浏览器内置语音合成 speechSynthesis（中文），不支持时静默跳过
- * - 浏览器自动播放策略：首次用户点击时 unlock；静音状态存 localStorage
+ * 音效与语音播报：
+ * - 音效用 Web Audio 现场合成（发牌噪声、亮牌、定庄叮、胜/负旋律、按钮音、牛牛炸裂音）
+ * - 真人语音：audio/<key>.mp3（Edge-TTS 晓晓女声离线文件），经 Web Audio 解码播放，
+ *   兼容微信/手机浏览器的严格自动播放策略；文件缺失时自动降级为浏览器 TTS
+ * - 浏览器自动播放策略：首次用户点击/触摸时 unlock；静音状态存 localStorage
  */
 (function () {
   'use strict';
@@ -171,53 +172,64 @@
   let voiceQueue = [];
   let voicePlaying = false;
   let voiceBroken = false;
+  const voiceBuffers = {};  // key -> 已解码 AudioBuffer
+  const voiceLoading = {};  // key -> 进行中的 Promise
 
-  /* 手机端自动播放策略更严：首次用户点击时静音预播一条真实 mp3 打通权限 */
-  let warmAudio = null;
+  /* 用 Web Audio 播放 mp3（解码后缓存）。微信/手机浏览器对 <audio> 元素的
+     异步播放限制很严，AudioContext 在首次点击 resume 后即可随时播放，是移动端标准做法 */
+  function loadVoice(key) {
+    if (voiceBuffers[key]) return Promise.resolve(voiceBuffers[key]);
+    if (voiceLoading[key]) return voiceLoading[key];
+    const p = fetch('audio/' + key + '.mp3')
+      .then(function (r) {
+        if (!r.ok) throw new Error('http ' + r.status);
+        return r.arrayBuffer();
+      })
+      .then(function (ab) {
+        return new Promise(function (resolve, reject) {
+          const c = ensureCtx();
+          if (!c) { reject(new Error('no audio ctx')); return; }
+          try {
+            const d = c.decodeAudioData(ab, resolve, reject);
+            if (d && typeof d.then === 'function') d.then(resolve, reject);
+          } catch (e) { reject(e); }
+        });
+      })
+      .then(function (buf) { voiceBuffers[key] = buf; return buf; });
+    p.catch(function () { delete voiceLoading[key]; });
+    voiceLoading[key] = p;
+    return p;
+  }
+
+  /* 首次点击时在手势回调里 resume AudioContext，并预取第一条语音 */
   function warmUp() {
-    if (warmAudio) return;
-    try {
-      warmAudio = new Audio('audio/deal.mp3');
-      warmAudio.volume = 0;
-      const p = warmAudio.play();
-      if (p && typeof p.catch === 'function') p.catch(function () { /* 未授权则下次点击再试 */ warmAudio = null; });
-      if (p && typeof p.then === 'function') p.then(function () { try { warmAudio.pause(); } catch (e) { /* ignore */ } });
-    } catch (e) { warmAudio = null; }
+    const c = ensureCtx();
+    if (c && c.state === 'suspended') { try { c.resume(); } catch (e) { /* ignore */ } }
+    loadVoice('deal').catch(function () { /* 静默 */ });
   }
 
   function pumpVoice() {
     if (voicePlaying || !voiceQueue.length || muted) return;
     const key = voiceQueue.shift();
-    let audio;
-    try {
-      audio = new Audio('audio/' + key + '.mp3');
-    } catch (e) {
-      voiceBroken = true;
-      voiceQueue = [];
-      speak(VOICE_CLIPS[key]);
-      return;
-    }
-    audio.volume = 0.95;
     voicePlaying = true;
-    const done = function (failed, hard) {
+    loadVoice(key).then(function (buf) {
+      const c = ensureCtx();
+      if (!c) throw new Error('no audio ctx');
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      const g = c.createGain();
+      g.gain.value = 0.95;
+      src.connect(g);
+      g.connect(c.destination);
+      src.onended = function () { voicePlaying = false; pumpVoice(); };
+      src.start();
+    }).catch(function () {
+      // 文件缺失/解码失败/无音频环境：永久降级 TTS，并播报队列里剩余文本
       voicePlaying = false;
-      if (failed) {
-        // onerror（文件缺失/解码失败）才永久降级 TTS；play() 被拒（自动播放策略）只降级当前这条
-        if (hard) voiceBroken = true;
-        const rest = voiceQueue.splice(0).map(function (k) { return VOICE_CLIPS[k]; });
-        speak([VOICE_CLIPS[key]].concat(rest).join('，'));
-        return;
-      }
-      pumpVoice();
-    };
-    audio.onended = function () { done(false); };
-    audio.onerror = function () { done(true, true); };
-    try {
-      const p = audio.play();
-      if (p && typeof p.catch === 'function') p.catch(function () { done(true, false); });
-    } catch (e) {
-      done(true, false);
-    }
+      voiceBroken = true;
+      const rest = voiceQueue.splice(0).map(function (k) { return VOICE_CLIPS[k]; });
+      speak([VOICE_CLIPS[key]].concat(rest).join('，'));
+    });
   }
 
   function voice(key) {
@@ -229,7 +241,7 @@
   }
 
   window.Sound = {
-    unlock() { ensureCtx(); warmUp(); },
+    unlock() { warmUp(); },
     play(name) {
       if (muted) return;
       const fn = effects[name];
