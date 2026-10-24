@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>牛牛 · 纯前端 P2P 好友房</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand">
+        <h1>牛牛 <span>P2P 好友房</span></h1>
+        <p class="sub">房主浏览器负责洗牌与结算 · 4 人 · 无真钱下注</p>
+      </div>
+      <div id="netBadge" class="net-badge"></div>
+    </header>
+
+    <section id="lobby" class="panel">
+      <div class="field">
+        <label for="nickname">昵称</label>
+        <input id="nickname" maxlength="12" placeholder="最多 12 个字符" autocomplete="off">
+      </div>
+
+      <div class="row">
+        <select id="selRounds" class="rounds-select" title="对局数">
+          <option value="8">8 局</option>
+          <option value="12" selected>12 局</option>
+          <option value="16">16 局</option>
+          <option value="20">20 局</option>
+        </select>
+        <button id="btnCreate" class="btn primary">创建房间</button>
+      </div>
+
+      <div class="divider"><span>或加入已有房间</span></div>
+
+      <div class="row">
+        <input id="roomCode" inputmode="numeric" maxlength="6" placeholder="6 位房间号">
+        <button id="btnJoin" class="btn">加入房间</button>
+      </div>
+
+      <button id="btnResume" class="btn ghost wide" hidden>重连上次房间</button>
+      <p id="lobbyMsg" class="msg"></p>
+
+      <ul class="tips">
+        <li>房主是本局唯一权威：洗牌、发牌、牛牛判定、比牌结算都在房主浏览器完成。</li>
+        <li>每个玩家只会收到自己的 5 张牌，全部亮牌后才公开牌面。</li>
+        <li>刷新页面可用本地 token 回到原座位；房主刷新或关闭页面则房间结束。</li>
+      </ul>
+    </section>
+
+    <section id="room" hidden>
+      <div class="panel room-bar">
+        <div class="room-code">房间号 <strong id="roomId">------</strong></div>
+        <div id="phaseInfo" class="phase-info"></div>
+        <span id="countdown" class="countdown" hidden></span>
+        <div class="room-actions">
+          <button id="btnHistory" class="btn small">战绩记录</button>
+          <button id="btnDownload" class="btn small gold" hidden>下载战绩图片</button>
+          <button id="btnReconnect" class="btn small" hidden>重新连接</button>
+          <button id="btnLeave" class="btn small ghost">离开房间</button>
+        </div>
+      </div>
+
+      <div id="statusLine" class="status-line"></div>
+
+      <ul id="seatList" class="seat-grid"></ul>
+
+      <div class="panel hand-panel">
+        <div class="panel-head">
+          <h2>我的手牌</h2>
+          <span id="myLabel" class="hand-label"></span>
+        </div>
+        <div id="myHand" class="hand"></div>
+      </div>
+
+      <div class="actions">
+        <button id="btnReady" class="btn primary" hidden>准备</button>
+        <span id="robWrap" class="reveal-wrap" hidden>
+          <button class="btn gold rob-btn" data-want="1">抢庄</button>
+          <button class="btn rob-btn" data-want="0">不抢</button>
+        </span>
+        <span id="robInfo" class="revealed-info" hidden></span>
+        <span id="revealWrap" class="reveal-wrap" hidden>
+          <button class="btn gold mult-btn" data-mult="5">亮牌 ×5</button>
+          <button class="btn gold mult-btn" data-mult="8">亮牌 ×8</button>
+          <button class="btn gold mult-btn" data-mult="12">亮牌 ×12</button>
+        </span>
+        <span id="revealedInfo" class="revealed-info" hidden></span>
+      </div>
+
+      <div id="resultPanel" class="panel" hidden>
+        <div class="panel-head">
+          <h2>本局结算</h2>
+          <span id="roundLabel" class="hand-label"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="result-table">
+            <thead>
+              <tr><th>名次</th><th>玩家</th><th>倍数</th><th>牌面</th><th>牌型</th><th>本轮</th><th>总分</th></tr>
+            </thead>
+            <tbody id="resultBody"></tbody>
+          </table>
+        </div>
+        <p class="msg">计分：庄家与每个闲家单独比牌，赌注 = 闲家倍数 × 胜方牌型倍数（牛八/牛九 ×2、牛牛 ×3、四炸 ×4、五花牛 ×5、五小牛 ×6），平局不计。抢庄 10 秒、亮牌 20 秒，超时分别按「不抢」「×5 亮牌」自动处理；大厅与每局结算后，全员点「准备」即自动开局。</p>
+      </div>
+
+      <div id="historyPanel" class="panel" hidden>
+        <div class="panel-head">
+          <h2>战绩记录</h2>
+          <span id="historyLabel" class="hand-label"></span>
+        </div>
+        <div id="historyBody" class="history-body"></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="js/evaluator.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/peer.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
