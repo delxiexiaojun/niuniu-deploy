@@ -255,7 +255,9 @@
     } catch (err) {
       console.error(err);
       $('lobbyMsg').textContent = '';
-      toast('加入失败：' + (err && err.message ? err.message : err), 'error');
+      const detail = err && err.type ? (err.type + (err.message ? '：' + err.message : ''))
+        : (err && err.message ? err.message : String(err));
+      toast('加入失败：' + detail, 'error');
       if (peer) { try { peer.destroy(); } catch (e) { /* 忽略 */ } }
       app.peer = null;
       app.conn = null;
