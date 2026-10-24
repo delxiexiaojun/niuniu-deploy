@@ -168,6 +168,7 @@
       if (app.hostConns.get(seat) !== conn) return; // 已被新连接取代
       app.hostConns.delete(seat);
       app.engine.markConnected(seat, false);
+      broadcast(); // 立刻通知全桌谁掉线了，不必等下一个动作
     });
     conn.on('error', () => { /* close 会接着触发 */ });
   }
@@ -183,11 +184,13 @@
         return;
       }
       const previous = app.hostConns.get(result.seat);
+      // 先换绑再关旧连接：previous.close() 的 close 事件可能同步触发，
+      // 若换绑在后，守卫会误判旧连接仍有效而把座位标成掉线
+      app.hostConns.set(result.seat, conn);
+      app.connSeat.set(conn, result.seat);
       if (previous && previous !== conn && previous.open) {
         try { previous.close(); } catch (e) { /* 忽略 */ }
       }
-      app.hostConns.set(result.seat, conn);
-      app.connSeat.set(conn, result.seat);
       Transport.send(conn, { t: 'joined', seat: result.seat, token: result.token, roomId: app.roomId });
       Transport.send(conn, { t: 'state', view: app.engine.view(result.seat) });
       broadcast();
