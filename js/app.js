@@ -200,7 +200,7 @@
     const seat = app.connSeat.get(conn);
     if (seat === undefined) return;
 
-    if (raw.t === 'start' || raw.t === 'reveal' || raw.t === 'rob' || raw.t === 'ready' || raw.t === 'bet') {
+    if (raw.t === 'start' || raw.t === 'reveal' || raw.t === 'rob' || raw.t === 'ready' || raw.t === 'bet' || raw.t === 'restart') {
       const result = raw.t === 'start'
         ? app.engine.start(seat, raw.reqId)
         : raw.t === 'rob'
@@ -209,7 +209,9 @@
             ? app.engine.ready(seat, raw.reqId)
             : raw.t === 'bet'
               ? app.engine.bet(seat, raw.mult, raw.reqId)
-              : app.engine.reveal(seat, raw.mult, raw.reqId);
+              : raw.t === 'restart'
+                ? app.engine.restart(seat, raw.reqId)
+                : app.engine.reveal(seat, raw.mult, raw.reqId);
       if (!result.ok && !result.ignored && result.error) {
         Transport.send(conn, { t: 'error', message: result.error });
       }
@@ -435,6 +437,29 @@
   document.addEventListener('pointerdown', sfxUnlock, { passive: true });
   document.addEventListener('touchstart', sfxUnlock, { passive: true });
 
+  /** 结算/终局时在每个座位头顶飘出本局得分（正=金色上浮，负=红色），约 2.5s 自动移除。
+   *  飘字挂在 .table-wrap（seatList 的父容器）上，renderSeats 只清 seatList 内部，不会误删飘字；
+   *  座位 li 的 left/top 百分比与 .table-wrap 同尺寸同原点，直接照搬即可对齐座位 */
+  function spawnScoreFloats(view) {
+    try {
+      const list = $('seatList');
+      const wrap = list ? list.parentElement : null;
+      if (!wrap || !view.result || !Array.isArray(view.result.ranking)) return;
+      view.result.ranking.forEach((row) => {
+        if (!row.delta) return;
+        const li = list.children[row.seat];
+        if (!li) return;
+        const el = document.createElement('div');
+        el.className = 'score-float ' + (row.delta > 0 ? 'up' : 'down');
+        el.textContent = (row.delta > 0 ? '+' : '') + row.delta;
+        el.style.left = li.style.left;
+        el.style.top = li.style.top;
+        wrap.appendChild(el);
+        setTimeout(() => { el.remove(); }, 2500);
+      });
+    } catch (err) { /* 飘字只是点缀，失败不影响游戏 */ }
+  }
+
   /** 根据前后 view 的阶段变化触发音效与语音播报 */
   function playTransitions(prev, view) {
     if (!prev || prev.roomId !== view.roomId) return;
@@ -466,6 +491,11 @@
         sfxVoice(mine.delta > 0 ? 'win' : mine.delta < 0 ? 'lose' : 'push');
       }
     }
+    // 得分飘字：结算和终局两条路径都要飘（最后一局从亮牌直接进 finished，不经过 settled）
+    const resultShown = view.result && Array.isArray(view.result.ranking) &&
+      ((view.phase === 'settled' && prev.phase !== 'settled') ||
+        (view.phase === 'finished' && prev.phase !== 'finished'));
+    if (resultShown) spawnScoreFloats(view);
     // 终局：播报结束语 + 冠军（冠军名是动态的，用 TTS 兜底）
     if (view.phase === 'finished' && prev.phase !== 'finished' && view.final && view.final.length) {
       sfxVoice('over');
@@ -774,6 +804,8 @@
     const seated = view.seats.filter(Boolean);
 
     $('btnDownload').hidden = view.phase !== 'finished';
+    // 整场打完后任何人都能点「重新开始」：比分清零回大厅，房间里的人不变，重新准备即可
+    $('btnRestart').hidden = !(view.phase === 'finished' && me && !app.dead);
 
     // 准备制：大厅和结算后都靠「全员准备」自动开局，不再有手动开始/下一局按钮
     const readyBtn = $('btnReady');
@@ -1008,6 +1040,16 @@
     }
   }
 
+  /** 整场打完后一键重开：比分清零回大厅，所有人还在房间里，重新准备即可 */
+  function actRestart() {
+    if (app.mode === 'host') {
+      const result = app.engine.restart(app.seat, newReqId());
+      if (!result.ok && !result.ignored && result.error) toast(result.error, 'warn');
+    } else if (app.conn) {
+      Transport.send(app.conn, { t: 'restart', reqId: newReqId() });
+    }
+  }
+
   function leaveRoom() {
     const wasHost = app.mode === 'host';
     if (wasHost && !window.confirm('房主离开会结束整个房间，确定？')) return;
@@ -1048,6 +1090,7 @@
     $('btnDownload').addEventListener('click', downloadResultImage);
     $('btnHistory').addEventListener('click', toggleHistory);
     $('btnReady').addEventListener('click', actReady);
+    $('btnRestart').addEventListener('click', actRestart);
     $('btnLeave').addEventListener('click', leaveRoom);
     $('btnShare').addEventListener('click', copyShareLink);
 
