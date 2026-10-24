@@ -150,6 +150,11 @@
         return { ok: false, error: '本局进行中，请等本局结束后再加入' };
       }
 
+      // 同房间内昵称唯一（忽略大小写），防止出现两个「相同的人」
+      const nameKey = safeName.toLowerCase();
+      const dup = this.seats.find((p) => p && p.name.toLowerCase() === nameKey);
+      if (dup) return { ok: false, error: '昵称「' + safeName + '」已被占用，请换一个' };
+
       const index = this.seats.findIndex((p) => p === null);
       if (index === -1) return { ok: false, error: '房间已满（' + this.maxPlayers + ' 人）' };
 
