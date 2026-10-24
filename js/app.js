@@ -399,6 +399,9 @@
     '牛牛': 'nn', '五花牛': 'whn', '四炸': 'szn', '五小牛': 'wxn'
   };
   function sfxUnlock() { if (window.Sound) { try { Sound.unlock(); } catch (e) { /* 忽略 */ } } }
+  // 手机端自动播放策略严格：页面内第一次任意点击/触摸即解锁音频（含真人语音预热）
+  document.addEventListener('pointerdown', sfxUnlock, { passive: true });
+  document.addEventListener('touchstart', sfxUnlock, { passive: true });
 
   /** 根据前后 view 的阶段变化触发音效与语音播报 */
   function playTransitions(prev, view) {
