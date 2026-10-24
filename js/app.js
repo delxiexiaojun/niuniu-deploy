@@ -1065,5 +1065,15 @@
     window.addEventListener('beforeunload', () => {
       if (app.mode === 'host') hostBye();
     });
+
+    // 房主后台自愈：微信切回页面时立即检查过期阶段并推进
+    // （微信 WebView 后台会冻结定时器，靠 visibilitychange 回前台时补一次）
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (app.mode === 'host' && app.engine) {
+        try { app.engine._checkTimeout(); } catch (e) { /* 自愈失败不影响状态 */ }
+        broadcast();
+      }
+    });
   });
 })();
