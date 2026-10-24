@@ -912,8 +912,11 @@
       try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* 忽略 */ }
     }
 
+    // 从分享链接进来且尚未进房的用户，超时/失败后回到分享入房界面；其余情况回大厅
+    const onSharePage = !$('shareJoin').hidden;
     $('room').hidden = true;
-    $('lobby').hidden = false;
+    $('lobby').hidden = onSharePage;
+    $('shareJoin').hidden = !onSharePage;
     $('netBadge').textContent = '';
     setJoinStatus('');
     $('btnReconnect').hidden = true;
@@ -1053,6 +1056,16 @@
         $('shareJoin').hidden = false;
         $('shareRoomCode').textContent = shared;
         $('shareNick').focus();
+        // 本机存有该房间的重连凭证（异常退出/切出微信后重新点链接）时，自动以原身份回座，绕过昵称占位
+        try {
+          const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+          if (saved && saved.roomId === shared && saved.token && saved.name) {
+            const sj = $('btnShareJoin');
+            if (sj) { sj.disabled = true; sj.textContent = '连接中…'; }
+            setJoinStatus('检测到「' + saved.name + '」的座位，正在自动回座…');
+            joinRoom(shared, saved.name, saved.token);
+          }
+        } catch (e) { /* ignore */ }
         const doJoin = () => {
           const name = ($('shareNick').value || '').trim().slice(0, 12);
           if (!name) { toast('先填个昵称吧', 'warn'); return; }
@@ -1100,6 +1113,10 @@
       if (app.mode === 'host' && app.engine) {
         try { app.engine._checkTimeout(); } catch (e) { /* 自愈失败不影响状态 */ }
         broadcast();
+      }
+      // 玩家切回前台：连接已被后台冻结断开时，用本地 token 自动回原座位
+      if (app.mode === 'guest' && !app.hostLeft && !app.busy && app.token && (!app.conn || !app.conn.open)) {
+        reconnectGuest();
       }
     });
   });
