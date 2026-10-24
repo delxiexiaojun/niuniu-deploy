@@ -620,9 +620,10 @@
     if (view.phase !== 'settled' && view.phase !== 'finished' &&
         (view.roundSeats || []).indexOf(i) === -1) return '';
     const back = '<span class="mini-card back"></span>';
+    // 角标式牌面：点数、花色分两行堆在左上角，叠牌时只露左缘也能读
     const mini = (c) => {
       const red = c.suit === '♥' || c.suit === '♦';
-      return '<span class="mini-card' + (red ? ' red' : '') + '">' + c.rank + c.suit + '</span>';
+      return '<span class="mini-card' + (red ? ' red' : '') + '"><b>' + c.rank + '</b><b>' + c.suit + '</b></span>';
     };
     if (view.phase === 'settled' || view.phase === 'finished') {
       const hand = ((view.hands && view.hands[i]) || []).slice().sort((a, b) => Evaluator.compareCards(b, a));
