@@ -172,6 +172,19 @@
   let voicePlaying = false;
   let voiceBroken = false;
 
+  /* 手机端自动播放策略更严：首次用户点击时静音预播一条真实 mp3 打通权限 */
+  let warmAudio = null;
+  function warmUp() {
+    if (warmAudio) return;
+    try {
+      warmAudio = new Audio('audio/deal.mp3');
+      warmAudio.volume = 0;
+      const p = warmAudio.play();
+      if (p && typeof p.catch === 'function') p.catch(function () { /* 未授权则下次点击再试 */ warmAudio = null; });
+      if (p && typeof p.then === 'function') p.then(function () { try { warmAudio.pause(); } catch (e) { /* ignore */ } });
+    } catch (e) { warmAudio = null; }
+  }
+
   function pumpVoice() {
     if (voicePlaying || !voiceQueue.length || muted) return;
     const key = voiceQueue.shift();
@@ -186,10 +199,11 @@
     }
     audio.volume = 0.95;
     voicePlaying = true;
-    const done = function (failed) {
+    const done = function (failed, hard) {
       voicePlaying = false;
       if (failed) {
-        voiceBroken = true;
+        // onerror（文件缺失/解码失败）才永久降级 TTS；play() 被拒（自动播放策略）只降级当前这条
+        if (hard) voiceBroken = true;
         const rest = voiceQueue.splice(0).map(function (k) { return VOICE_CLIPS[k]; });
         speak([VOICE_CLIPS[key]].concat(rest).join('，'));
         return;
@@ -197,12 +211,12 @@
       pumpVoice();
     };
     audio.onended = function () { done(false); };
-    audio.onerror = function () { done(true); };
+    audio.onerror = function () { done(true, true); };
     try {
       const p = audio.play();
-      if (p && typeof p.catch === 'function') p.catch(function () { done(true); });
+      if (p && typeof p.catch === 'function') p.catch(function () { done(true, false); });
     } catch (e) {
-      done(true);
+      done(true, false);
     }
   }
 
@@ -215,7 +229,7 @@
   }
 
   window.Sound = {
-    unlock() { ensureCtx(); },
+    unlock() { ensureCtx(); warmUp(); },
     play(name) {
       if (muted) return;
       const fn = effects[name];
