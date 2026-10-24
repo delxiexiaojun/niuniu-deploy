@@ -14,7 +14,7 @@
   const RANK_VALUE = { A: 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, J: 11, Q: 12, K: 13 };
   // 牛牛点数：JQK=10，A=1，其余按面值
   const POINT = { A: 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7, '8': 8, '9': 9, '10': 10, J: 10, Q: 10, K: 10 };
-  const SUIT_VALUE = { '♠': 4, '♥': 3, '♦': 2, '♣': 1 };
+  const SUIT_VALUE = { '♠': 4, '♥': 3, '♣': 2, '♦': 1 }; // 花色大小：黑桃>红桃>梅花>方块
   const CN_NUM = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
 
   function isCard(card) {
@@ -29,7 +29,7 @@
     return POINT[card.rank];
   }
 
-  /** 比单张：先比点数，再比花色（♠ > ♥ > ♦ > ♣） */
+  /** 比单张：先比点数，再比花色（♠黑桃 > ♥红桃 > ♣梅花 > ♦方块） */
   function compareCards(a, b) {
     if (!isCard(a) || !isCard(b)) throw new TypeError('compareCards 需要两张合法牌');
     const byRank = RANK_VALUE[a.rank] - RANK_VALUE[b.rank];
@@ -88,7 +88,7 @@
       niu,
       type: niu > 0 ? 'niu' : 'none',
       label: niu === 0 ? '无牛' : niu === 10 ? '牛牛' : '牛' + CN_NUM[niu],
-      mult: niu === 10 ? 3 : niu >= 8 ? 2 : 1,
+      mult: niu === 10 ? 3 : niu === 9 ? 3 : niu >= 7 ? 2 : 1,
       maxCard: top
     };
   }
