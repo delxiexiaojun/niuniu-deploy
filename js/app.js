@@ -26,6 +26,7 @@
     dead: false,
     hostLeft: false,
     countdownEnd: null,
+    autoStartEnd: null,
     joinTimer: null,
     hostConns: new Map(),
     connSeat: new WeakMap()
@@ -91,7 +92,10 @@
       }
       if (!peer) throw new Error('房间号连续冲突，请重试');
 
-      const engine = new Engine(code, { totalRounds: Number($('selRounds').value) || 12 });
+      const engine = new Engine(code, {
+        totalRounds: Number($('selRounds').value) || 12,
+        maxPlayers: Number($('selPlayers').value) || 4
+      });
       app.engine = engine;
       engine.onUpdate = broadcast;
 
@@ -169,14 +173,16 @@
     const seat = app.connSeat.get(conn);
     if (seat === undefined) return;
 
-    if (raw.t === 'start' || raw.t === 'reveal' || raw.t === 'rob' || raw.t === 'ready') {
+    if (raw.t === 'start' || raw.t === 'reveal' || raw.t === 'rob' || raw.t === 'ready' || raw.t === 'bet') {
       const result = raw.t === 'start'
         ? app.engine.start(seat, raw.reqId)
         : raw.t === 'rob'
           ? app.engine.rob(seat, raw.want, raw.reqId)
           : raw.t === 'ready'
             ? app.engine.ready(seat, raw.reqId)
-            : app.engine.reveal(seat, raw.mult, raw.reqId);
+            : raw.t === 'bet'
+              ? app.engine.bet(seat, raw.mult, raw.reqId)
+              : app.engine.reveal(seat, raw.mult, raw.reqId);
       if (!result.ok && !result.ignored && result.error) {
         Transport.send(conn, { t: 'error', message: result.error });
       }
@@ -365,29 +371,99 @@
     el.classList.toggle('urgent', left <= 5);
   }
 
-  setInterval(tickCountdown, 500);
+  /** 开局倒计时本地走秒：状态栏「N 秒后自动开局」每秒动态刷新，不等服务器推送 */
+  function tickAutoStart() {
+    const view = app.view;
+    if (!view || app.autoStartEnd == null) return;
+    const left = Math.max(0, Math.ceil((app.autoStartEnd - Date.now()) / 1000));
+    if (left === view.startingIn) return;
+    view.startingIn = left;
+    if (left <= 0) app.autoStartEnd = null; // 归零后等房主推进阶段，服务端状态会覆盖显示
+    if (view.phase === 'lobby' || view.phase === 'settled') updateStatus(view);
+  }
+
+  setInterval(() => { tickCountdown(); tickAutoStart(); }, 500);
 
   /* ---------------- 渲染 ---------------- */
 
+  /* 音效安全封装：任何音频异常都不允许阻断游戏动作 */
+  function sfxPlay(name) { if (window.Sound) { try { Sound.play(name); } catch (e) { /* 忽略 */ } } }
+  function sfxSpeak(text) { if (window.Sound) { try { Sound.speak(text); } catch (e) { /* 忽略 */ } } }
+  function sfxVoice(key) { if (window.Sound) { try { Sound.voice(key); } catch (e) { /* 忽略 */ } } }
+
+  /* 牌型文案 -> 真人语音文件 key */
+  const LABEL_VOICE = {
+    '没牛': 'n0',
+    '牛一': 'n1', '牛二': 'n2', '牛三': 'n3', '牛四': 'n4', '牛五': 'n5',
+    '牛六': 'n6', '牛七': 'n7', '牛八': 'n8', '牛九': 'n9',
+    '牛牛': 'nn', '五花牛': 'whn', '四炸': 'szn', '五小牛': 'wxn'
+  };
+  function sfxUnlock() { if (window.Sound) { try { Sound.unlock(); } catch (e) { /* 忽略 */ } } }
+
+  /** 根据前后 view 的阶段变化触发音效与语音播报 */
+  function playTransitions(prev, view) {
+    if (!prev || prev.roomId !== view.roomId) return;
+    // 发牌：进入抢庄阶段
+    if (view.phase === 'robbing' && prev.phase !== 'robbing') { sfxPlay('deal'); sfxVoice('deal'); }
+    // 定庄瞬间（定庄即进入下注阶段）：叮 + 播报庄家
+    if (view.phase === 'betting' && prev.phase === 'robbing' && view.bankerSeat !== null) {
+      sfxPlay('ding');
+      const banker = view.seats[view.bankerSeat];
+      if (banker) sfxSpeak(view.bankerSeat === view.yourSeat ? '你是庄家' : '庄家是 ' + banker.name);
+    }
+    // 我亮牌了
+    const meBefore = prev.seats[view.yourSeat];
+    const meNow = view.seats[view.yourSeat];
+    if (view.yourSeat !== null && meBefore && meNow && !meBefore.revealed && meNow.revealed) {
+      sfxPlay('flip');
+    }
+    // 结算：逐个报牌型（showdown）+ 胜负音 + 自己的得失
+    if (view.phase === 'settled' && prev.phase !== 'settled' &&
+        view.result && Array.isArray(view.result.ranking)) {
+      const mine = view.result.ranking.find((e) => e.seat === view.yourSeat);
+      // 牛牛及以上牌型（牛牛/五花牛/四炸/五小牛）先来一段炸裂登场音
+      if (mine && mine.handMult >= 3) sfxPlay('boom');
+      sfxPlay(mine ? (mine.delta > 0 ? 'win' : mine.delta < 0 ? 'lose' : 'flip') : 'flip');
+      // 只报自己的牌型和胜负，不报其他人
+      if (mine) {
+        const k = LABEL_VOICE[mine.label];
+        if (k) sfxVoice(k);
+        sfxVoice(mine.delta > 0 ? 'win' : mine.delta < 0 ? 'lose' : 'push');
+      }
+    }
+    // 终局：播报结束语 + 冠军（冠军名是动态的，用 TTS 兜底）
+    if (view.phase === 'finished' && prev.phase !== 'finished' && view.final && view.final.length) {
+      sfxVoice('over');
+      sfxSpeak('冠军是 ' + view.final[0].name);
+    }
+  }
+
   function render(view) {
     if (!view) return;
+    const prev = app.view;
     app.view = view;
+    try {
+      playTransitions(prev, view);
+    } catch (err) {
+      console.error('音效/播报异常（已忽略，不影响游戏）', err);
+    }
 
     $('roomId').textContent = view.roomId || app.roomId || '------';
     const phaseText = {
       lobby: '等待玩家',
       robbing: `第 ${view.round}/${view.totalRounds} 局 · 抢庄阶段`,
+      betting: `第 ${view.round}/${view.totalRounds} 局 · 下注阶段`,
       revealing: `第 ${view.round}/${view.totalRounds} 局 · 亮牌阶段`,
       settled: `第 ${view.round}/${view.totalRounds} 局 · 已结算`,
       finished: `全部 ${view.totalRounds} 局已完成`
     };
     $('phaseInfo').textContent = phaseText[view.phase] || '';
     app.countdownEnd = view.secondsLeft != null ? Date.now() + view.secondsLeft * 1000 : null;
+    app.autoStartEnd = view.startingIn != null ? Date.now() + view.startingIn * 1000 : null;
     tickCountdown();
+    tickAutoStart();
 
     renderSeats(view);
-    renderHand(view);
-    renderResult(view);
     renderHistory(view);
     renderControls(view);
     updateStatus(view);
@@ -395,149 +471,105 @@
 
   function renderSeats(view) {
     const list = $('seatList');
+    const cardsLayer = $('tableCards');
     list.innerHTML = '';
-    for (let i = 0; i < 4; i++) {
+    cardsLayer.innerHTML = '';
+    const n = view.seats.length;
+    const me = view.yourSeat !== null && view.yourSeat !== undefined ? view.yourSeat : 0;
+    const step = (Math.PI * 2) / n;
+    for (let i = 0; i < n; i++) {
       const player = view.seats[i];
+      // 环绕牌桌椭圆分布；“我”固定在正下方（角度 90°），其余按座位号顺时针排开
+      const angle = Math.PI / 2 + (i - me) * step;
+      // 半径收紧：底部座位（正下方）的头像+文字不能溢出桌底把页面撑出滚动条
+      const px = 50 + 40 * Math.cos(angle);
+      const py = 50 + 34 * Math.sin(angle);
+
+      // 牌直接摆在桌面上：座位内侧（半径 60% 处）的一手牌
+      if (player) {
+        const hand = document.createElement('div');
+        hand.className = 'table-hand' + (player.seat === view.yourSeat ? ' mine' : '');
+        hand.style.left = (50 + (px - 50) * 0.6).toFixed(2) + '%';
+        hand.style.top = (50 + (py - 50) * 0.6).toFixed(2) + '%';
+        hand.innerHTML = tableHandHtml(view, i, player);
+        if (hand.innerHTML) cardsLayer.appendChild(hand);
+      }
+
       const item = document.createElement('li');
       item.className = 'seat' + (player ? '' : ' empty') + (player && player.seat === view.yourSeat ? ' me' : '');
+      item.style.left = px.toFixed(2) + '%';
+      item.style.top = py.toFixed(2) + '%';
 
       if (!player) {
-        item.innerHTML = '<div class="seat-name">空位</div><div class="seat-sub">等待加入</div>';
+        item.innerHTML = '<div class="seat-avatar empty-avatar"></div><div class="seat-label">空位</div>';
       } else {
-        const tags = [];
-        if (player.seat === view.hostSeat) tags.push('<span class="tag host">房主</span>');
+        const badges = [];
+        if (player.seat === view.hostSeat) badges.push('<span class="mini-badge host">房</span>');
         if (view.bankerSeat === player.seat && view.phase !== 'lobby') {
-          tags.push('<span class="tag banker">庄家</span>');
+          badges.push('<span class="mini-badge banker">庄</span>');
         }
-        if (!player.connected) tags.push('<span class="tag bad">掉线</span>');
-        if (view.phase === 'robbing') {
-          tags.push(player.rob === null
-            ? '<span class="tag wait">未选择</span>'
-            : player.rob
-              ? '<span class="tag ok">抢庄</span>'
-              : '<span class="tag wait">不抢</span>');
-        } else if (view.phase === 'lobby' && view.seatedCount > 0) {
-          tags.push(player.ready
-            ? '<span class="tag ok">已准备</span>'
-            : '<span class="tag wait">未准备</span>');
-        } else if (view.phase === 'revealing' && player.seat !== view.bankerSeat) {
-          tags.push(player.revealed
-            ? '<span class="tag ok">已亮 ×' + (player.mult || '?') + '</span>'
-            : '<span class="tag wait">未亮牌</span>');
-        } else if (view.phase === 'settled') {
-          tags.push(player.ready
-            ? '<span class="tag ok">已准备</span>'
-            : '<span class="tag wait">未准备</span>');
+        let status = '';
+        let statusCls = 'wait';
+        const inRound = view.phase === 'robbing' || view.phase === 'betting' || view.phase === 'revealing'
+          ? (view.roundSeats || []).indexOf(player.seat) !== -1
+          : true;
+        if (!inRound) {
+          status = '旁观'; statusCls = 'wait';
+        } else if (!player.connected) {
+          status = '掉线'; statusCls = 'bad';
+        } else if (view.phase === 'robbing') {
+          status = player.rob === null ? '未选择' : (player.rob ? '抢庄' : '不抢');
+          statusCls = player.rob ? 'ok' : 'wait';
+        } else if (view.phase === 'lobby' || view.phase === 'settled') {
+          status = player.ready ? '已准备' : '未准备';
+          statusCls = player.ready ? 'ok' : 'wait';
+        } else if (view.phase === 'betting') {
+          if (player.seat === view.bankerSeat) {
+            status = '庄家'; statusCls = 'ok';
+          } else {
+            status = player.bet !== null && player.bet !== undefined ? '已下注×' + player.bet : '未下注';
+            statusCls = (player.bet !== null && player.bet !== undefined) ? 'ok' : 'wait';
+          }
+        } else if (view.phase === 'revealing') {
+          if (player.seat === view.bankerSeat) {
+            status = '庄家'; statusCls = 'ok';
+          } else {
+            status = player.revealed ? '已亮×' + (player.mult || '?') : '未亮牌';
+            statusCls = player.revealed ? 'ok' : 'wait';
+          }
         }
         const score = (player.score > 0 ? '+' : '') + player.score;
         item.innerHTML =
-          '<div class="seat-name">' + esc(player.name) + tags.join('') + '</div>' +
-          '<div class="seat-sub"><span class="dot ' + (player.connected ? 'on' : 'off') + '"></span>' +
-          '积分 <strong>' + score + '</strong></div>';
+          '<div class="seat-avatar' + (player.connected ? '' : ' off') + '">' +
+            esc(player.name.charAt(0) || '?') + badges.join('') + '</div>' +
+          '<div class="seat-label">' + esc(player.name) + '</div>' +
+          '<div class="seat-score">' + score +
+            (status ? ' · <span class="st ' + statusCls + '">' + status + '</span>' : '') + '</div>';
       }
       list.appendChild(item);
     }
   }
 
-  function cardElement(card) {
-    const el = document.createElement('div');
-    const red = card.suit === '♥' || card.suit === '♦';
-    el.className = 'pcard' + (red ? ' red' : '');
-    el.innerHTML = '<span class="corner">' + card.rank + '<br>' + card.suit + '</span>' +
-      '<span class="big">' + card.suit + '</span>';
-    return el;
-  }
-
-  function cardsHtml(cards) {
-    return (cards || []).map((card) => {
-      const red = card.suit === '♥' || card.suit === '♦';
-      return '<span class="mcard' + (red ? ' red' : '') + '">' + card.rank + card.suit + '</span>';
-    }).join('');
-  }
-
-  function renderHand(view) {
-    const box = $('myHand');
-    box.innerHTML = '';
-    const label = $('myLabel');
-    const hand = view.yourHand || [];
-
-    if (!hand.length) {
-      box.innerHTML = '<span class="muted">' + (view.phase === 'lobby' ? '等待开局' : '本局未发牌') + '</span>';
-      label.textContent = '';
-      return;
+  /** 桌面上每个座位的一手牌：结算前别人是 5 张牌背、自己是 4 明 1 暗；结算后全亮 */
+  function tableHandHtml(view, i, player) {
+    if (!player || view.phase === 'lobby') return '';
+    // 本局未参与（开局前未点准备）的旁观者不摆牌
+    if (view.phase !== 'settled' && view.phase !== 'finished' &&
+        (view.roundSeats || []).indexOf(i) === -1) return '';
+    const back = '<span class="mini-card back"></span>';
+    const mini = (c) => {
+      const red = c.suit === '♥' || c.suit === '♦';
+      return '<span class="mini-card' + (red ? ' red' : '') + '">' + c.rank + c.suit + '</span>';
+    };
+    if (view.phase === 'settled' || view.phase === 'finished') {
+      const hand = ((view.hands && view.hands[i]) || []).slice().sort((a, b) => Evaluator.compareCards(b, a));
+      return hand.map(mini).join('');
     }
-
-    hand.slice().sort((a, b) => Evaluator.compareCards(b, a)).forEach((card) => {
-      box.appendChild(cardElement(card));
-    });
-    // 暗牌：结算前第 5 张以牌背显示
-    if (view.yourHiddenCount > 0) {
-      const back = document.createElement('div');
-      back.className = 'pcard back';
-      back.innerHTML = '<span class="big">?</span>';
-      box.appendChild(back);
+    if (i === view.yourSeat) {
+      const mine = (view.yourHand || []).slice().sort((a, b) => Evaluator.compareCards(b, a));
+      return mine.map(mini).join('') + back.repeat(Math.max(0, view.yourHiddenCount || 0));
     }
-
-    if (view.phase === 'settled' && view.result) {
-      const mine = view.result.ranking.find((row) => row.seat === view.yourSeat);
-      label.textContent = mine
-        ? mine.label + '　本轮 ' + (mine.delta > 0 ? '+' : '') + mine.delta + ' 分'
-        : '';
-    } else if (view.phase === 'robbing') {
-      label.textContent = '看牌中 · 选择是否抢庄（暗牌结算时揭晓）';
-    } else if (view.phase === 'revealing') {
-      const mine = view.seats[view.yourSeat];
-      if (view.yourSeat === view.bankerSeat) {
-        label.textContent = '你是庄家 · 已自动亮牌，等待闲家（暗牌结算时揭晓）';
-      } else {
-        label.textContent = mine && mine.revealed
-          ? '已亮牌 ×' + (mine.mult || 5) + ' · 等待其他玩家'
-          : '暗牌结算时揭晓 · 选个倍数亮牌';
-      }
-    } else {
-      label.textContent = '';
-    }
-  }
-
-  function renderResult(view) {
-    const panel = $('resultPanel');
-    const finished = view.phase === 'finished';
-    if ((!finished && view.phase !== 'settled') || !view.result) {
-      panel.hidden = true;
-      return;
-    }
-    panel.hidden = false;
-    $('roundLabel').textContent = finished ? '最终战绩' : '第 ' + view.result.round + ' 局';
-    const body = $('resultBody');
-    body.innerHTML = '';
-
-    if (finished) {
-      // 最终战绩：只展示累计总分排名（牌面/倍数列不适用，合并显示总局数）
-      view.final.forEach((row, index) => {
-        const tr = document.createElement('tr');
-        if (row.seat === view.yourSeat) tr.className = 'me';
-        tr.innerHTML = '<td>' + (index + 1) + '</td>' +
-          '<td>' + esc(row.name) + (index === 0 ? ' <span class="tag banker">冠军</span>' : '') + '</td>' +
-          '<td colspan="3" class="muted">共 ' + view.totalRounds + ' 局</td>' +
-          '<td>' + (row.score > 0 ? '+' : '') + row.score + '</td>' +
-          '<td>' + row.score + '</td>';
-        body.appendChild(tr);
-      });
-      return;
-    }
-
-    view.result.ranking.forEach((row, index) => {
-      const tr = document.createElement('tr');
-      if (row.seat === view.yourSeat) tr.className = 'me';
-      tr.innerHTML = '<td>' + (index + 1) + '</td>' +
-        '<td>' + esc(row.name) + (row.isBanker ? ' <span class="tag banker">庄家</span>' : '') + '</td>' +
-        '<td>' + (row.isBanker ? '—' : '×' + row.mult) + '</td>' +
-        '<td>' + cardsHtml(row.hand) + '</td>' +
-        '<td>' + esc(row.label) + (row.handMult > 1 ? ' ×' + row.handMult : '') + '</td>' +
-        '<td>' + (row.delta > 0 ? '+' : '') + row.delta + '</td>' +
-        '<td>' + row.score + '</td>';
-      body.appendChild(tr);
-    });
+    return back.repeat(5);
   }
 
   /** 生成最终战绩 PNG 并触发下载（纯 canvas 绘制，无外部依赖） */
@@ -724,22 +756,45 @@
 
     const robWrap = $('robWrap');
     const robInfo = $('robInfo');
-    const showRob = view.phase === 'robbing' && me;
+    const inRound = view.inRound !== false; // 未准备的旁观者本局不显示操作按钮
+    const spectating = me && !inRound &&
+      (view.phase === 'robbing' || view.phase === 'betting' || view.phase === 'revealing');
+    const showRob = view.phase === 'robbing' && me && inRound;
     robWrap.hidden = !(showRob && me.rob === null && !busyDead);
-    robInfo.hidden = !(showRob && me.rob !== null);
-    if (showRob && me.rob !== null) {
+    robInfo.hidden = !((showRob && me.rob !== null) || spectating);
+    if (spectating) {
+      robInfo.textContent = '本局未参与（开局前未点「准备」）· 等待下一局';
+    } else if (showRob && me.rob !== null) {
       robInfo.textContent = '已选「' + (me.rob ? '抢庄' : '不抢') + '」· 等待其他玩家';
     }
 
-    const revealWrap = $('revealWrap');
+    // 下注阶段：闲家选倍数（此时只见自己前 4 张）
+    const betWrap = $('revealWrap');
+    const betInfo = $('betInfo');
+    const myBet = me2.bet;
+    const hasBet = myBet !== null && myBet !== undefined;
+    const showBet = view.phase === 'betting' && me && inRound;
+    betWrap.hidden = !(showBet && !isBanker && !hasBet && !busyDead);
+    betInfo.hidden = !(showBet && (isBanker || hasBet));
+    if (showBet && (isBanker || hasBet)) {
+      betInfo.textContent = me2.revealed
+        ? '已亮牌 · 等待其他玩家'
+        : isBanker
+          ? '你是庄家 · 等待闲家下注'
+          : '已下注 ×' + myBet + ' · 可点「亮牌」查看牌面';
+    }
+
+    // 亮牌：下注后立即可点，不用等其他人；亮牌后本人可见完整 5 张
+    const showWrap = $('showWrap');
     const revealedInfo = $('revealedInfo');
-    const showReveal = view.phase === 'revealing' && me;
-    revealWrap.hidden = !(showReveal && !isBanker && !me2.revealed && !busyDead);
+    showWrap.hidden = !(me && inRound && !me2.revealed && !busyDead &&
+      ((view.phase === 'betting' && hasBet) || (view.phase === 'revealing' && !isBanker)));
+    const showReveal = view.phase === 'revealing' && me && inRound;
     revealedInfo.hidden = !(showReveal && (isBanker || me2.revealed));
     if (showReveal && (isBanker || me2.revealed)) {
       revealedInfo.textContent = isBanker
         ? '你是庄家 · 等待闲家亮牌'
-        : '已亮牌 ×' + (me2.mult || 5) + ' · 等待其他玩家';
+        : '已亮牌 · 等待其他玩家';
     }
 
     $('btnReconnect').hidden = !(app.dead && !app.hostLeft && app.mode === 'guest');
@@ -752,17 +807,28 @@
     const seated = view.seats.filter(Boolean);
     if (view.phase === 'lobby') {
       const readyCount = seated.filter((p) => p.ready).length;
-      setStatus(seated.length + '/4 人已就位 · 全员点「准备」自动开局（' + readyCount + '/' + seated.length +
-        ' 已准备，至少 2 人）', '');
+      setStatus(view.startingIn
+        ? readyCount + ' 人已准备 · ' + view.startingIn + ' 秒后自动开局…'
+        : seated.length + '/' + view.maxPlayers + ' 人已就位 · 满 2 人点「准备」后倒计时自动开局（已准备 ' +
+          readyCount + '/' + seated.length + '）', '');
     } else if (view.phase === 'robbing') {
-      const chosen = seated.filter((player) => player.rob !== null).length;
-      setStatus('第 ' + view.round + ' 局 · 抢庄中 ' + chosen + '/' + seated.length + ' 已选择', '');
-    } else if (view.phase === 'revealing') {
-      const revealed = seated.filter((player) => player.revealed).length;
+      const players = seated.filter((p) => (view.roundSeats || []).indexOf(p.seat) !== -1);
+      const chosen = players.filter((player) => player.rob !== null).length;
+      setStatus('第 ' + view.round + ' 局 · 抢庄中 ' + chosen + '/' + players.length + ' 已选择', '');
+    } else if (view.phase === 'betting') {
       const banker = view.bankerSeat !== null && view.seats[view.bankerSeat]
         ? view.seats[view.bankerSeat].name : '?';
-      const offline = seated.filter((player) => !player.connected);
-      let text = '第 ' + view.round + ' 局 · 庄家：' + banker + ' · 已亮牌 ' + revealed + '/' + seated.length;
+      const players = seated.filter((p) => (view.roundSeats || []).indexOf(p.seat) !== -1);
+      const betCount = players.filter((p) => p.seat === view.bankerSeat ||
+        (p.bet !== null && p.bet !== undefined)).length;
+      setStatus('第 ' + view.round + ' 局 · 庄家：' + banker + ' · 闲家下注中 ' + betCount + '/' + players.length, '');
+    } else if (view.phase === 'revealing') {
+      const players = seated.filter((p) => (view.roundSeats || []).indexOf(p.seat) !== -1);
+      const revealed = players.filter((player) => player.revealed).length;
+      const banker = view.bankerSeat !== null && view.seats[view.bankerSeat]
+        ? view.seats[view.bankerSeat].name : '?';
+      const offline = players.filter((player) => !player.connected);
+      let text = '第 ' + view.round + ' 局 · 庄家：' + banker + ' · 已亮牌 ' + revealed + '/' + players.length;
       if (offline.length) text += ' · ' + offline.map((player) => player.name).join('、') + ' 掉线中';
       setStatus(text, offline.length ? 'warn' : '');
     } else if (view.phase === 'finished') {
@@ -770,7 +836,9 @@
     } else {
       const seatedAll = view.seats.filter(Boolean);
       const readyCount = seatedAll.filter((p) => p.ready).length;
-      setStatus('第 ' + view.round + ' 局已结算 · 点「准备」，全员就绪（' + readyCount + '/' + seatedAll.length + '）后自动开始', '');
+      setStatus(view.startingIn
+        ? readyCount + ' 人已准备 · ' + view.startingIn + ' 秒后自动开始下一局…'
+        : '第 ' + view.round + ' 局已结算 · 点「准备」，满 2 人（' + readyCount + '/' + seatedAll.length + '）后倒计时自动开始', '');
     }
   }
 
@@ -801,6 +869,7 @@
     app.dead = false;
     app.hostLeft = false;
     app.countdownEnd = null;
+    app.autoStartEnd = null;
     app.hostConns = new Map();
     app.connSeat = new WeakMap();
 
@@ -813,15 +882,38 @@
     $('netBadge').textContent = '';
     $('lobbyMsg').textContent = '';
     $('btnReconnect').hidden = true;
-    $('resultPanel').hidden = true;
     $('historyPanel').hidden = true;
-    $('myHand').innerHTML = '';
     updateResumeButton();
+  }
+
+  function copyRoomId() {
+    const text = $('roomId').textContent.trim();
+    if (!/^\d{6}$/.test(text)) return;
+    const done = () => toast('房间号 ' + text + ' 已复制，发给朋友即可', 'ok');
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, () => legacyCopy(text, done));
+    } else {
+      legacyCopy(text, done); // 局域网 http 不是安全上下文，clipboard API 不可用
+    }
+  }
+
+  function legacyCopy(text, done) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); }
+    catch (e) { toast('复制失败，请手动记录：' + text, 'warn'); }
+    document.body.removeChild(ta);
   }
 
   /* ---------------- 操作 ---------------- */
 
   function actRob(want) {
+    sfxUnlock();
+    if (want) { sfxPlay('ding'); sfxVoice('rob'); }
+    else { sfxPlay('click'); sfxVoice('norob'); }
     if (app.mode === 'host') {
       const result = app.engine.rob(app.seat, want, newReqId());
       if (!result.ok && !result.ignored && result.error) toast(result.error, 'warn');
@@ -830,12 +922,27 @@
     }
   }
 
-  function actReveal(mult) {
+  function actBet(mult) {
+    sfxUnlock();
+    sfxPlay('click');
+    sfxVoice('bet' + ([5, 8, 12].includes(mult) ? mult : 5));
     if (app.mode === 'host') {
-      const result = app.engine.reveal(app.seat, mult, newReqId());
+      const result = app.engine.bet(app.seat, mult, newReqId());
       if (!result.ok && !result.ignored && result.error) toast(result.error, 'warn');
     } else if (app.conn) {
-      Transport.send(app.conn, { t: 'reveal', mult, reqId: newReqId() });
+      Transport.send(app.conn, { t: 'bet', mult, reqId: newReqId() });
+    }
+  }
+
+  function actReveal() {
+    sfxUnlock();
+    sfxPlay('flip');
+    sfxVoice('show');
+    if (app.mode === 'host') {
+      const result = app.engine.reveal(app.seat, null, newReqId());
+      if (!result.ok && !result.ignored && result.error) toast(result.error, 'warn');
+    } else if (app.conn) {
+      Transport.send(app.conn, { t: 'reveal', reqId: newReqId() });
     }
   }
 
@@ -873,14 +980,35 @@
     document.querySelectorAll('.rob-btn').forEach((btn) => {
       btn.addEventListener('click', () => actRob(btn.dataset.want === '1'));
     });
+    $('roomId').addEventListener('click', copyRoomId);
     document.querySelectorAll('.mult-btn').forEach((btn) => {
-      btn.addEventListener('click', () => actReveal(Number(btn.dataset.mult)));
+      btn.addEventListener('click', () => actBet(Number(btn.dataset.mult)));
     });
+    $('btnShow').addEventListener('click', actReveal);
     $('btnReconnect').addEventListener('click', reconnectGuest);
     $('btnDownload').addEventListener('click', downloadResultImage);
     $('btnHistory').addEventListener('click', toggleHistory);
     $('btnReady').addEventListener('click', actReady);
     $('btnLeave').addEventListener('click', leaveRoom);
+    // 音效：任意按钮点击都先解锁音频（浏览器自动播放策略）并播放点击音
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.btn')) {
+        sfxUnlock();
+        sfxPlay('click');
+      }
+    });
+    // 静音开关（音效模块缺失时隐藏按钮，绝不影响游戏）
+    const btnSound = $('btnSound');
+    if (!window.Sound) {
+      btnSound.hidden = true;
+    } else {
+      const syncSoundIcon = () => { btnSound.textContent = Sound.isMuted() ? '🔇' : '🔊'; };
+      btnSound.addEventListener('click', () => {
+        try { Sound.toggle(); } catch (e) { /* 忽略 */ }
+        syncSoundIcon();
+      });
+      syncSoundIcon();
+    }
 
     $('roomCode').addEventListener('keydown', (event) => {
       if (event.key === 'Enter') joinRoom($('roomCode').value, $('nickname').value);
