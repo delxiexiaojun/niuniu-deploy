@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>牛牛 · 纯前端 P2P 好友房</title>
-  <link rel="stylesheet" href="css/style.css?v=20261025k?v=20261025k">
+  <link rel="stylesheet" href="css/style.css?v=20261025m?v=20261025m">
 </head>
 <body>
   <div class="app">
@@ -56,6 +56,19 @@
         <li>每个玩家只会收到自己的 5 张牌，全部亮牌后才公开牌面。</li>
         <li>刷新页面可用本地 token 回到原座位；房主刷新或关闭页面则房间结束。</li>
       </ul>
+    </section>
+
+    <!-- 分享链接进入：独立界面，只填昵称，不预填 -->
+    <section id="shareJoin" class="panel" hidden>
+      <div class="field">
+        <label>朋友邀请你加入房间</label>
+        <div class="share-room-code"><strong id="shareRoomCode">------</strong></div>
+      </div>
+      <div class="field">
+        <label for="shareNick">你的昵称</label>
+        <input id="shareNick" maxlength="12" placeholder="输入昵称后进入房间" autocomplete="off">
+      </div>
+      <button id="btnShareJoin" class="btn primary wide">进入房间</button>
     </section>
 
     <section id="room" hidden>
@@ -110,10 +123,10 @@
   <div id="toast" class="toast"></div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="js/evaluator.js?v=20261025k"></script>
-  <script src="js/game.js?v=20261025k"></script>
-  <script src="js/peer.js?v=20261025k"></script>
-  <script src="js/sound.js?v=20261025k"></script>
-  <script src="js/app.js?v=20261025k"></script>
+  <script src="js/evaluator.js?v=20261025m"></script>
+  <script src="js/game.js?v=20261025m"></script>
+  <script src="js/peer.js?v=20261025m"></script>
+  <script src="js/sound.js?v=20261025m"></script>
+  <script src="js/app.js?v=20261025m"></script>
 </body>
 </html>
