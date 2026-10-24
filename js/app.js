@@ -27,6 +27,7 @@
     hostLeft: false,
     countdownEnd: null,
     autoStartEnd: null,
+    phaseLeft: null,
     joinTimer: null,
     hostConns: new Map(),
     connSeat: new WeakMap()
@@ -42,10 +43,13 @@
     toastTimer = setTimeout(() => { el.className = 'toast'; }, 3200);
   }
 
+  /** 流程状态打在牌桌中央的小药丸上（阶段+倒计时），不占页面高度 */
   function setStatus(text, kind) {
-    const el = $('statusLine');
-    el.textContent = text;
-    el.className = 'status-line ' + (kind || '');
+    const el = $('tableStatus');
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text || '';
+    el.className = 'table-status' + (kind ? ' ' + kind : '');
   }
 
   // 全局错误捕获：iOS / 微信内看不到控制台，把异常以 toast 展示出来便于排查
@@ -391,18 +395,12 @@
     if (!$('nickname').value) $('nickname').value = saved.name || '';
   }
 
+  /** 阶段倒计时本地走秒：维护 phaseLeft 并刷新牌桌状态药丸（不再写房间栏倒计时元素） */
   function tickCountdown() {
-    const el = $('countdown');
-    if (!el) return;
-    if (app.countdownEnd == null) {
-      el.hidden = true;
-      el.textContent = '';
-      return;
-    }
-    const left = Math.max(0, Math.ceil((app.countdownEnd - Date.now()) / 1000));
-    el.hidden = false;
-    el.textContent = '剩余 ' + left + 's';
-    el.classList.toggle('urgent', left <= 5);
+    app.phaseLeft = app.countdownEnd == null
+      ? null
+      : Math.max(0, Math.ceil((app.countdownEnd - Date.now()) / 1000));
+    if (app.view) updateStatus(app.view);
   }
 
   /** 开局倒计时本地走秒：状态栏「N 秒后自动开局」每秒动态刷新，不等服务器推送 */
@@ -871,41 +869,26 @@
     if (app.hostLeft) { setStatus('房主已离开，房间结束', 'bad'); return; }
     if (app.dead) { setStatus('与房主的连接已断开', 'bad'); return; }
 
+    // 牌桌状态只保留流程关键信息：准备进度 / 倒计时，阶段名已在房间栏 phaseInfo 展示
     const seated = view.seats.filter(Boolean);
-    if (view.phase === 'lobby') {
+    if (view.phase === 'lobby' || view.phase === 'settled') {
       const readyCount = seated.filter((p) => p.ready).length;
       setStatus(view.startingIn
-        ? readyCount + ' 人已准备 · ' + view.startingIn + ' 秒后自动开局…'
-        : seated.length + '/' + view.maxPlayers + ' 人已就位 · 满 2 人点「准备」后倒计时自动开局（已准备 ' +
-          readyCount + '/' + seated.length + '）', '');
-    } else if (view.phase === 'robbing') {
+        ? view.startingIn + ' 秒后' + (view.phase === 'lobby' ? '开局' : '开下一局')
+        : '准备 ' + readyCount + '/' + seated.length, '');
+    } else if (view.phase === 'robbing' || view.phase === 'betting' || view.phase === 'revealing') {
+      const label = view.phase === 'robbing' ? '抢庄' : view.phase === 'betting' ? '下注' : '亮牌';
       const players = seated.filter((p) => (view.roundSeats || []).indexOf(p.seat) !== -1);
-      const chosen = players.filter((player) => player.rob !== null).length;
-      setStatus('第 ' + view.round + ' 局 · 抢庄中 ' + chosen + '/' + players.length + ' 已选择', '');
-    } else if (view.phase === 'betting') {
-      const banker = view.bankerSeat !== null && view.seats[view.bankerSeat]
-        ? view.seats[view.bankerSeat].name : '?';
-      const players = seated.filter((p) => (view.roundSeats || []).indexOf(p.seat) !== -1);
-      const betCount = players.filter((p) => p.seat === view.bankerSeat ||
-        (p.bet !== null && p.bet !== undefined)).length;
-      setStatus('第 ' + view.round + ' 局 · 庄家：' + banker + ' · 闲家下注中 ' + betCount + '/' + players.length, '');
-    } else if (view.phase === 'revealing') {
-      const players = seated.filter((p) => (view.roundSeats || []).indexOf(p.seat) !== -1);
-      const revealed = players.filter((player) => player.revealed).length;
-      const banker = view.bankerSeat !== null && view.seats[view.bankerSeat]
-        ? view.seats[view.bankerSeat].name : '?';
-      const offline = players.filter((player) => !player.connected);
-      let text = '第 ' + view.round + ' 局 · 庄家：' + banker + ' · 已亮牌 ' + revealed + '/' + players.length;
-      if (offline.length) text += ' · ' + offline.map((player) => player.name).join('、') + ' 掉线中';
-      setStatus(text, offline.length ? 'warn' : '');
+      const done = view.phase === 'robbing'
+        ? players.filter((p) => p.rob !== null).length
+        : view.phase === 'betting'
+          ? players.filter((p) => p.seat === view.bankerSeat || (p.bet !== null && p.bet !== undefined)).length
+          : players.filter((p) => p.revealed).length;
+      const left = app.phaseLeft;
+      setStatus(label + ' ' + done + '/' + players.length + (left != null ? ' · ' + left + 's' : ''),
+        left != null && left <= 5 ? 'urgent' : '');
     } else if (view.phase === 'finished') {
-      setStatus('全部 ' + view.totalRounds + ' 局已完成 · 可下载战绩图片', '');
-    } else {
-      const seatedAll = view.seats.filter(Boolean);
-      const readyCount = seatedAll.filter((p) => p.ready).length;
-      setStatus(view.startingIn
-        ? readyCount + ' 人已准备 · ' + view.startingIn + ' 秒后自动开始下一局…'
-        : '第 ' + view.round + ' 局已结算 · 点「准备」，满 2 人（' + readyCount + '/' + seatedAll.length + '）后倒计时自动开始', '');
+      setStatus('全部 ' + view.totalRounds + ' 局已打完', '');
     }
   }
 
