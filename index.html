@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>牛牛 · 纯前端 P2P 好友房</title>
-  <link rel="stylesheet" href="css/style.css?v=20261025v">
+  <link rel="stylesheet" href="css/style.css?v=20261025w">
 </head>
 <body>
   <div class="app">
@@ -76,7 +76,6 @@
       <div class="panel room-bar">
         <div class="room-code">房间号 <strong id="roomId" class="copyable" title="点击复制房间号">------</strong></div>
         <div id="phaseInfo" class="phase-info"></div>
-        <span id="countdown" class="countdown" hidden></span>
         <div class="room-actions">
           <button id="btnHistory" class="btn small">战绩记录</button>
           <button id="btnDownload" class="btn small gold" hidden>下载战绩图片</button>
@@ -87,12 +86,11 @@
         </div>
       </div>
 
-      <div id="statusLine" class="status-line"></div>
-
       <div class="table-wrap">
         <div class="table-felt"></div>
         <div id="tableCards" class="table-cards"></div>
         <ul id="seatList" class="seat-grid"></ul>
+        <span id="tableStatus" class="table-status" hidden></span>
         <button id="btnReady" class="btn primary table-ready-btn" hidden>准备</button>
         <button id="btnRestart" class="btn primary table-ready-btn" hidden>重新开始</button>
         <span id="robWrap" class="table-rob-wrap" hidden>
@@ -125,10 +123,10 @@
   <div id="toast" class="toast"></div>
 
   <script src="js/peerjs.min.js"></script>
-  <script src="js/evaluator.js?v=20261025v"></script>
-  <script src="js/game.js?v=20261025v"></script>
-  <script src="js/peer.js?v=20261025v"></script>
-  <script src="js/sound.js?v=20261025v"></script>
-  <script src="js/app.js?v=20261025v"></script>
+  <script src="js/evaluator.js?v=20261025w"></script>
+  <script src="js/game.js?v=20261025w"></script>
+  <script src="js/peer.js?v=20261025w"></script>
+  <script src="js/sound.js?v=20261025w"></script>
+  <script src="js/app.js?v=20261025w"></script>
 </body>
 </html>
