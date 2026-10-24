@@ -216,6 +216,15 @@ input:focus {
 .phase-info { font-size: 13px; color: var(--text); opacity: 0.86; }
 .room-actions { display: flex; gap: 8px; }
 
+/* 分享链接入房界面 */
+.share-room-code { text-align: center; padding: 6px 0 2px; }
+.share-room-code strong {
+  font-size: 30px;
+  color: var(--gold);
+  letter-spacing: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
 .status-line {
   font-size: 13px;
   color: var(--muted);
