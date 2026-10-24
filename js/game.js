@@ -214,6 +214,32 @@
       this._touch();
     }
 
+    /** 整场打完后重新开始：清空比分/战绩/局数回到大厅，座位与 token 保留，重新准备开局 */
+    restart(seat, reqId) {
+      this._checkTimeout();
+      if (this._seen(reqId)) return { ok: false, ignored: true };
+      if (!this.seats[seat]) return { ok: false, error: '无效座位' };
+      if (this.phase !== 'finished') return { ok: false, error: '整场打完后才能重新开始' };
+      this._clearTimers();
+      this.phase = 'lobby';
+      this.round = 0;
+      this.bankerSeat = null;
+      this.hands = {};
+      this.robChoices = {};
+      this.revealed = new Set();
+      this.multipliers = {};
+      this.result = null;
+      this.history = [];
+      this.readySet = new Set();
+      this.roundSeats = [];
+      this.deadline = null;
+      this.autoStartAt = null;
+      this._autoStartPending = false;
+      this.seats.forEach((p) => { if (p) p.score = 0; });
+      this._touch();
+      return { ok: true };
+    }
+
     /** 房主开局 / 下一局：发牌并进入抢庄阶段。只有 hostSeat 可调用。 */
     start(seat, reqId) {
       this._checkTimeout();
