@@ -48,6 +48,21 @@
     el.className = 'status-line ' + (kind || '');
   }
 
+  // 全局错误捕获：iOS / 微信内看不到控制台，把异常以 toast 展示出来便于排查
+  window.addEventListener('error', (e) => {
+    try {
+      const msg = e && e.message ? e.message : String(e && e.error ? e.error : e);
+      toast('页面异常：' + msg.slice(0, 80), 'error');
+    } catch (err) { /* 忽略 */ }
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    try {
+      const reason = e && e.reason;
+      const msg = reason && reason.message ? reason.message : String(reason || 'Promise rejected');
+      toast('异步异常：' + msg.slice(0, 80), 'error');
+    } catch (err) { /* 忽略 */ }
+  });
+
   function esc(value) {
     return String(value).replace(/[&<>"']/g, (ch) => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -67,6 +82,14 @@
       clearTimeout(app.joinTimer);
       app.joinTimer = null;
     }
+  }
+
+  /** 连接状态同时写大厅与分享入房界面，避免分享入房时用户看不到反馈 */
+  function setJoinStatus(text) {
+    const lm = $('lobbyMsg');
+    if (lm) lm.textContent = text;
+    const sm = $('shareMsg');
+    if (sm) sm.textContent = text;
   }
 
   /* ---------------- 房主侧 ---------------- */
@@ -217,7 +240,7 @@
     try { localStorage.setItem('nn_name', name); } catch (e) { /* ignore */ }
 
     app.busy = true;
-    $('lobbyMsg').textContent = '正在连接房主…';
+    setJoinStatus('正在连接房主…');
     let peer = null;
     try {
       peer = await Transport.createPeer();
@@ -244,7 +267,7 @@
       });
 
       Transport.send(conn, { t: 'join', name, token: token || null });
-      $('lobbyMsg').textContent = '已连接，等待房主确认座位…';
+      setJoinStatus('已连接，等待房主确认座位…');
 
       clearJoinTimer();
       app.joinTimer = setTimeout(() => {
@@ -254,7 +277,7 @@
       }, 12000);
     } catch (err) {
       console.error(err);
-      $('lobbyMsg').textContent = '';
+      setJoinStatus('');
       const detail = err && err.type ? (err.type + (err.message ? '：' + err.message : ''))
         : (err && err.message ? err.message : String(err));
       toast('加入失败：' + detail, 'error');
@@ -264,6 +287,8 @@
       app.mode = null;
     } finally {
       app.busy = false;
+      const sj = $('btnShareJoin');
+      if (sj) { sj.disabled = false; sj.textContent = '进入房间'; }
     }
   }
 
@@ -276,7 +301,7 @@
       app.token = raw.token;
       if (raw.roomId) app.roomId = raw.roomId;
       saveSession();
-      $('lobbyMsg').textContent = '';
+      setJoinStatus('');
       enterRoom();
       toast('已加入房间 ' + app.roomId, 'ok');
       return;
@@ -890,7 +915,7 @@
     $('room').hidden = true;
     $('lobby').hidden = false;
     $('netBadge').textContent = '';
-    $('lobbyMsg').textContent = '';
+    setJoinStatus('');
     $('btnReconnect').hidden = true;
     $('historyPanel').hidden = true;
     updateResumeButton();
@@ -1032,6 +1057,8 @@
           const name = ($('shareNick').value || '').trim().slice(0, 12);
           if (!name) { toast('先填个昵称吧', 'warn'); return; }
           try { localStorage.setItem('nn_name', name); } catch (e) { /* ignore */ }
+          const sj = $('btnShareJoin');
+          if (sj) { sj.disabled = true; sj.textContent = '连接中…'; }
           joinRoom(shared, name);
         };
         $('btnShareJoin').addEventListener('click', doJoin);
