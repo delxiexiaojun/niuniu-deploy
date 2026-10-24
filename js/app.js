@@ -1015,18 +1015,13 @@
     $('btnLeave').addEventListener('click', leaveRoom);
     $('btnShare').addEventListener('click', copyShareLink);
 
-    // 分享链接进入：?room=XXXXXX 预填房间号；有已存昵称则直接进房，否则引导输入
+    // 分享链接进入：?room=XXXXXX 预填房间号并引导输入昵称，手动点「加入房间」确认后进房
     try {
       const shared = new URLSearchParams(location.search).get('room');
       if (shared && /^\d{6}$/.test(shared)) {
         $('roomCode').value = shared;
-        const nick = ($('nickname').value || '').trim();
-        if (nick) {
-          joinRoom(shared, nick);
-        } else {
-          toast('已识别房间链接 ' + shared + '，输入昵称后点「加入房间」', 'ok');
-          $('nickname').focus();
-        }
+        toast('已识别房间链接 ' + shared + '，输入昵称后点「加入房间」', 'ok');
+        $('nickname').focus();
       }
     } catch (e) { /* ignore */ }
     // 音效：任意按钮点击都先解锁音频（浏览器自动播放策略）并播放点击音
