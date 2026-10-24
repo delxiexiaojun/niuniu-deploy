@@ -512,6 +512,27 @@ input:focus {
   50% { opacity: 0.55; }
 }
 
+/* 结算得分飘字：座位头顶浮出 +分/-分，上飘淡出后由 JS 移除（挂在 .table-wrap 上） */
+.score-float {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 22px;
+  font-weight: 800;
+  pointer-events: none;
+  z-index: 30;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
+  animation: scoreFloatUp 2.4s ease-out forwards;
+}
+.score-float.up { color: var(--gold); }
+.score-float.down { color: var(--red); }
+@keyframes scoreFloatUp {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  12% { opacity: 1; transform: translate(-50%, -90%) scale(1.15); }
+  30% { transform: translate(-50%, -115%) scale(1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -230%) scale(1); }
+}
+
 /* toast */
 .toast {
   position: fixed;
@@ -545,6 +566,7 @@ input:focus {
   .table-felt { inset: 12% 6%; }
   .seat-label { font-size: 10.5px; max-width: 60px; }
   .seat-score { font-size: 9px; }
+  .score-float { font-size: 16px; }
   .brand h1 { font-size: 21px; }
   .room-bar { align-items: flex-start; }
 }
