@@ -366,6 +366,8 @@ input:focus {
   justify-content: center;
   align-items: center;
 }
+/* 角标式牌面 + 扇形叠牌：点数/花色堆左上角，后一张压住前一张右缘，
+   整手牌横向宽度缩掉一半以上，牌本身可以保持大尺寸 */
 .mini-card {
   width: 32px;
   height: 45px;
@@ -375,18 +377,27 @@ input:focus {
   font-size: 13.5px;
   font-weight: 700;
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  letter-spacing: -0.5px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: 3px 0 0 4px;
+  line-height: 1.05;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   flex: none;
 }
+.mini-card b { display: block; font-style: normal; }
+.mini-card b:first-of-type { font-size: 12.5px; letter-spacing: -0.5px; }
+.mini-card b:last-of-type { font-size: 10.5px; }
 .mini-card.red { color: #c62828; }
 .mini-card.back {
   background: repeating-linear-gradient(45deg, #0f5132, #0f5132 3px, #0a3b24 3px, #0a3b24 6px);
   border: 1px solid rgba(255, 255, 255, 0.28);
 }
-.table-hand.mine .mini-card { width: 44px; height: 62px; font-size: 16.5px; }
+.table-hand .mini-card + .mini-card { margin-left: -12px; }
+.table-hand.mine .mini-card { width: 44px; height: 62px; }
+.table-hand.mine .mini-card + .mini-card { margin-left: -20px; }
+.table-hand.mine .mini-card b:first-of-type { font-size: 15px; }
+.table-hand.mine .mini-card b:last-of-type { font-size: 12px; }
 
 /* 准备按钮：缩小后放在牌桌毡面正中央，仅大厅/结算阶段由 JS 控制显示 */
 .table-ready-btn {
@@ -556,9 +567,15 @@ input:focus {
 @media (max-width: 720px) {
   .seat { width: 60px; }
   .seat-avatar { width: 36px; height: 36px; font-size: 14px; }
-  .mini-card { width: 34px; height: 48px; font-size: 14px; border-radius: 5px; }
+  .mini-card { width: 34px; height: 48px; border-radius: 5px; }
+  .mini-card b:first-of-type { font-size: 13px; }
+  .mini-card b:last-of-type { font-size: 11px; }
   .table-hand { gap: 3px; }
-  .table-hand.mine .mini-card { width: 46px; height: 64px; font-size: 17.5px; }
+  .table-hand .mini-card + .mini-card { margin-left: -13px; }
+  .table-hand.mine .mini-card { width: 46px; height: 64px; }
+  .table-hand.mine .mini-card + .mini-card { margin-left: -21px; }
+  .table-hand.mine .mini-card b:first-of-type { font-size: 15.5px; }
+  .table-hand.mine .mini-card b:last-of-type { font-size: 12.5px; }
   .table-felt { inset: 12% 6%; }
   .seat-label { font-size: 10.5px; max-width: 60px; }
   .seat-score { font-size: 9px; }
