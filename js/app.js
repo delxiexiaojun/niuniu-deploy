@@ -75,6 +75,7 @@
     if (app.busy) return;
     const name = ($('nickname').value || '').trim().slice(0, 12);
     if (!name) { toast('先填个昵称吧', 'warn'); return; }
+    try { localStorage.setItem('nn_name', name); } catch (e) { /* ignore */ }
 
     app.busy = true;
     $('lobbyMsg').textContent = '正在创建房间（连接免费云信令）…';
@@ -213,6 +214,7 @@
     const name = String(nameInput || '').trim().slice(0, 12);
     if (!code) { toast('请输入房间号', 'warn'); return; }
     if (!name) { toast('先填个昵称吧', 'warn'); return; }
+    try { localStorage.setItem('nn_name', name); } catch (e) { /* ignore */ }
 
     app.busy = true;
     $('lobbyMsg').textContent = '正在连接房主…';
@@ -900,6 +902,18 @@
     }
   }
 
+  /** 复制分享链接：带 ?room= 参数，朋友点开输入昵称即可进房 */
+  function copyShareLink() {
+    if (!app.roomId) return;
+    const link = location.origin + location.pathname + '?room=' + app.roomId;
+    const done = () => toast('链接已复制，发给朋友点开就能进房', 'ok');
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(link).then(done, () => legacyCopy(link, done));
+    } else {
+      legacyCopy(link, done); // 局域网 http 不是安全上下文，clipboard API 不可用
+    }
+  }
+
   function legacyCopy(text, done) {
     const ta = document.createElement('textarea');
     ta.value = text;
@@ -974,6 +988,12 @@
 
     updateResumeButton();
 
+    // 记住昵称：创建/加入时存 localStorage，分享链接再来时免输入直接进房
+    try {
+      const savedName = localStorage.getItem('nn_name');
+      if (savedName && !$('nickname').value) $('nickname').value = savedName;
+    } catch (e) { /* ignore */ }
+
     $('btnCreate').addEventListener('click', createRoom);
     $('btnJoin').addEventListener('click', () => joinRoom($('roomCode').value, $('nickname').value));
     $('btnResume').addEventListener('click', () => {
@@ -993,6 +1013,22 @@
     $('btnHistory').addEventListener('click', toggleHistory);
     $('btnReady').addEventListener('click', actReady);
     $('btnLeave').addEventListener('click', leaveRoom);
+    $('btnShare').addEventListener('click', copyShareLink);
+
+    // 分享链接进入：?room=XXXXXX 预填房间号；有已存昵称则直接进房，否则引导输入
+    try {
+      const shared = new URLSearchParams(location.search).get('room');
+      if (shared && /^\d{6}$/.test(shared)) {
+        $('roomCode').value = shared;
+        const nick = ($('nickname').value || '').trim();
+        if (nick) {
+          joinRoom(shared, nick);
+        } else {
+          toast('已识别房间链接 ' + shared + '，输入昵称后点「加入房间」', 'ok');
+          $('nickname').focus();
+        }
+      }
+    } catch (e) { /* ignore */ }
     // 音效：任意按钮点击都先解锁音频（浏览器自动播放策略）并播放点击音
     document.addEventListener('click', (e) => {
       if (e.target.closest('.btn')) {
