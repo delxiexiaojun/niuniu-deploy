@@ -851,6 +851,7 @@
 
   function enterRoom() {
     $('lobby').hidden = true;
+    $('shareJoin').hidden = true;
     $('room').hidden = false;
     $('netBadge').textContent = (app.mode === 'host' ? '房主 · 房间 ' : '玩家 · 房间 ') + app.roomId;
     $('netBadge').className = 'net-badge ' + (app.mode === 'host' ? 'host' : 'guest');
@@ -1015,13 +1016,22 @@
     $('btnLeave').addEventListener('click', leaveRoom);
     $('btnShare').addEventListener('click', copyShareLink);
 
-    // 分享链接进入：?room=XXXXXX 预填房间号并引导输入昵称，手动点「加入房间」确认后进房
+    // 分享链接进入：?room=XXXXXX 切到独立入房界面（只填昵称，不预填）
     try {
       const shared = new URLSearchParams(location.search).get('room');
       if (shared && /^\d{6}$/.test(shared)) {
-        $('roomCode').value = shared;
-        toast('已识别房间链接 ' + shared + '，输入昵称后点「加入房间」', 'ok');
-        $('nickname').focus();
+        $('lobby').hidden = true;
+        $('shareJoin').hidden = false;
+        $('shareRoomCode').textContent = shared;
+        $('shareNick').focus();
+        const doJoin = () => {
+          const name = ($('shareNick').value || '').trim().slice(0, 12);
+          if (!name) { toast('先填个昵称吧', 'warn'); return; }
+          try { localStorage.setItem('nn_name', name); } catch (e) { /* ignore */ }
+          joinRoom(shared, name);
+        };
+        $('btnShareJoin').addEventListener('click', doJoin);
+        $('shareNick').addEventListener('keydown', (e) => { if (e.key === 'Enter') doJoin(); });
       }
     } catch (e) { /* ignore */ }
     // 音效：任意按钮点击都先解锁音频（浏览器自动播放策略）并播放点击音
