@@ -1,4 +1,4 @@
-/*
+﻿/*
  * 房主端权威游戏状态机（Host-Authoritative on the host browser）。
  * 不依赖 DOM / 网络：UI 层通过 engine.onUpdate 订阅变化，通过 engine.view(seat) 取该座位的可见状态。
  * 其他玩家的浏览器永远只会收到 view(自己的座位)，别人的手牌不会下发。
@@ -19,6 +19,7 @@
   const MULTIPLIERS = [5, 8, 12];
   const ROB_SECONDS = 10;
   const REVEAL_SECONDS = 20;
+  const READY_DELAY_SECONDS = 10; // 至少 2 人准备后到自动开局的缓冲秒数
   const TOTAL_ROUNDS = 12;
   const SUITS = ['♠', '♥', '♦', '♣'];
   const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
@@ -52,7 +53,8 @@
       this.roomId = String(roomId);
       this.phase = 'lobby'; // lobby | robbing | revealing | settled
       this.round = 0;
-      this.seats = new Array(SEAT_COUNT).fill(null);
+      this.maxPlayers = Math.min(8, Math.max(MIN_PLAYERS, Number(opts.maxPlayers) || SEAT_COUNT));
+      this.seats = new Array(this.maxPlayers).fill(null);
       this.hostSeat = null;
       this.bankerSeat = null;
       this.hands = {};            // seat -> 5 张牌（仅房主内存持有）
@@ -61,9 +63,13 @@
       this.multipliers = {};      // seat -> 闲家亮牌倍数（5/8/12）；庄家固定 1
       this.result = null;         // 结算结果（含公开牌面）
       this.history = [];          // 每局战绩（不含牌面，跨局累积，整场有效）
-      this.readySet = new Set();  // 结算后已点「准备」的座位；全员准备自动开下一局
+      this.readySet = new Set();  // 结算后已点「准备」的座位；满 2 人准备即倒计时开局
+      this.roundSeats = [];       // 本局参与者座位（开局时刻的准备名单快照）；未准备的玩家旁观本局
       this.robSeconds = opts.robSeconds !== undefined ? opts.robSeconds : ROB_SECONDS;
       this.revealSeconds = opts.revealSeconds !== undefined ? opts.revealSeconds : REVEAL_SECONDS;
+      this.readyDelaySeconds = opts.readyDelaySeconds !== undefined ? opts.readyDelaySeconds : READY_DELAY_SECONDS;
+      this.autoStartAt = null;       // 全员准备后自动开局的触发时刻（epoch ms）
+      this._autoStartPending = false;
       this.totalRounds = Math.max(1, Number(opts.totalRounds) || TOTAL_ROUNDS);
       this.deadline = null;       // 当前阶段截止时间（房主本机时间，epoch ms）
       this._autoAttempts = 0;     // 自动开局尝试计数（保证 reqId 不被去重）
@@ -108,8 +114,25 @@
       this.onUpdate = function () {};
     }
 
+    /** 超时自愈检查：房主标签页被后台节流时 setTimeout 可能延迟，
+     *  任何玩家动作到达时都检查是否已过截止时间，过了就立即推进阶段 */
+    _checkTimeout() {
+      if (this._autoStartPending && this.autoStartAt && Date.now() >= this.autoStartAt) {
+        this._autoStartPending = false;
+        this.autoStartAt = null;
+        this._autoAttempts += 1;
+        this.start(this.hostSeat, 'auto-ready-' + this.round + '-' + this._autoAttempts);
+        return;
+      }
+      if (!this.deadline || Date.now() < this.deadline) return;
+      if (this.phase === 'robbing') this._finishRobbing();
+      else if (this.phase === 'betting') this._finishBetting();
+      else if (this.phase === 'revealing') this._finishRevealing();
+    }
+
     /** 加入或重连。带 token 且命中座位时恢复原座位与手牌。 */
     join(name, token) {
+      this._checkTimeout();
       const safeName = String(name || '').trim().slice(0, 12) || '玩家';
 
       if (token) {
@@ -123,12 +146,12 @@
       }
 
       if (this.phase === 'finished') return { ok: false, error: '本场对局已全部结束' };
-      if (this.phase === 'robbing' || this.phase === 'revealing') {
+      if (this.phase === 'robbing' || this.phase === 'betting' || this.phase === 'revealing') {
         return { ok: false, error: '本局进行中，请等本局结束后再加入' };
       }
 
       const index = this.seats.findIndex((p) => p === null);
-      if (index === -1) return { ok: false, error: '房间已满（4 人）' };
+      if (index === -1) return { ok: false, error: '房间已满（' + this.maxPlayers + ' 人）' };
 
       const newToken = randomToken();
       this.seats[index] = { seat: index, name: safeName, token: newToken, score: 0, connected: true };
@@ -139,6 +162,7 @@
 
     /** 大厅/结算后点「准备」：全员准备则自动开局；有人掉线时 start 会拒绝，等其重连后补触发 */
     ready(seat, reqId) {
+      this._checkTimeout();
       if (this._seen(reqId)) return { ok: false, ignored: true };
       if (this.phase !== 'lobby' && this.phase !== 'settled') return { ok: false, error: '当前不在准备阶段' };
       if (!this.seats[seat]) return { ok: false, error: '无效座位' };
@@ -149,14 +173,32 @@
       return { ok: true };
     }
 
-    /** 全员准备且都在线 → 自动开局（大厅开第一局、结算后开下一局）；条件不满足则继续等待 */
+    /** 至少 2 人点了「准备」→ 挂起 readyDelaySeconds 秒倒计时后自动开局（不要求满员/全员准备）；
+     *  期间有人掉线则 start 拒绝、倒计时作废，待其重连后重新计时 */
     _maybeAutoStart() {
       if (this.phase !== 'lobby' && this.phase !== 'settled') return;
-      const players = this.seats.filter(Boolean);
-      if (players.length < MIN_PLAYERS) return;
-      if (this.readySet.size < players.length) return;
-      this._autoAttempts += 1;
-      this.start(this.hostSeat, 'auto-ready-' + this.round + '-' + this._autoAttempts);
+      if (this._autoStartPending) return; // 已有倒计时在跑，不重复挂
+      if (this.readySet.size < MIN_PLAYERS) return;
+      if (this.readyDelaySeconds <= 0) { // 测试/即时模式：同步开局
+        this._autoAttempts += 1;
+        this.start(this.hostSeat, 'auto-ready-' + this.round + '-' + this._autoAttempts);
+        return;
+      }
+      this._autoStartPending = true;
+      this.autoStartAt = Date.now() + this.readyDelaySeconds * 1000;
+      this._schedule(() => {
+        this._autoStartPending = false;
+        this.autoStartAt = null;
+        this._autoAttempts += 1;
+        this.start(this.hostSeat, 'auto-ready-' + this.round + '-' + this._autoAttempts);
+      }, this.readyDelaySeconds);
+      this._touch(); // 广播「全员已准备，倒计时中」
+    }
+
+    /** 本局参与者（开局时的准备名单）；roundSeats 为空时退化为全体在座（未开局时的防御） */
+    _roundPlayers() {
+      if (!this.roundSeats.length) return this.seats.filter(Boolean);
+      return this.seats.filter((p) => p && this.roundSeats.indexOf(p.seat) !== -1);
     }
 
     /** 连接断开：保留座位与手牌，等待 token 重连；超时机制会兜底其抢庄/亮牌 */
@@ -169,17 +211,23 @@
 
     /** 房主开局 / 下一局：发牌并进入抢庄阶段。只有 hostSeat 可调用。 */
     start(seat, reqId) {
+      this._checkTimeout();
       if (this._seen(reqId)) return { ok: false, ignored: true };
       if (seat !== this.hostSeat) return { ok: false, error: '只有房主可以开始 / 下一局' };
       if (this.phase === 'finished') return { ok: false, error: '全部 ' + this.totalRounds + ' 局已完成' };
-      if (this.phase === 'robbing' || this.phase === 'revealing') {
+      if (this.phase === 'robbing' || this.phase === 'betting' || this.phase === 'revealing') {
         return { ok: false, ignored: true, error: '本局尚未结束' };
       }
 
-      const players = this.seats.filter(Boolean);
-      if (players.length < MIN_PLAYERS) return { ok: false, error: '至少需要 2 名玩家（4 人最佳）' };
+      const seated = this.seats.filter(Boolean);
+      if (seated.length < MIN_PLAYERS) return { ok: false, error: '至少需要 2 名玩家（4 人最佳）' };
+      // 有准备名单（自动开局路径）时只有点了「准备」的玩家入局；未准备的玩家旁观本局。
+      // 无准备名单（手动 start，测试/兼容路径）则所有在座玩家入局。
+      const readyPlayers = seated.filter((p) => this.readySet.has(p.seat));
+      const players = readyPlayers.length >= MIN_PLAYERS ? readyPlayers : seated;
       const offline = players.find((p) => !p.connected);
       if (offline) return { ok: false, error: offline.name + ' 掉线中，等待重连' };
+      this.roundSeats = players.map((p) => p.seat);
 
       const deck = shuffle(newDeck());
       this.hands = {};
@@ -192,10 +240,12 @@
       this.bankerSeat = null;
       this.result = null;
       this.readySet.clear(); // 新一局开始，准备状态清零
+      this.autoStartAt = null;
+      this._autoStartPending = false;
       this.round += 1;
       this.phase = 'robbing';
       this._clearTimers();
-      this.deadline = Date.now() + this.robSeconds * 1000;
+      this.deadline = this.robSeconds > 0 ? Date.now() + this.robSeconds * 1000 : null;
       this._schedule(() => this._finishRobbing(), this.robSeconds);
       this._touch();
       return { ok: true, round: this.round };
@@ -203,13 +253,15 @@
 
     /** 抢庄：want=true 抢 / false 不抢。选完不可改；全员选完或超时后定庄。 */
     rob(seat, want, reqId) {
+      this._checkTimeout();
       if (this._seen(reqId)) return { ok: false, ignored: true };
       if (this.phase !== 'robbing') return { ok: false, error: '当前不在抢庄阶段' };
       if (!this.seats[seat]) return { ok: false, error: '无效座位' };
+      if (this.roundSeats.indexOf(seat) === -1) return { ok: true }; // 旁观者不参与本局
       if (Object.prototype.hasOwnProperty.call(this.robChoices, seat)) return { ok: true };
 
       this.robChoices[seat] = !!want;
-      const total = this.seats.filter(Boolean).length;
+      const total = this._roundPlayers().length;
       if (Object.keys(this.robChoices).length >= total) {
         this._finishRobbing();
       } else {
@@ -221,7 +273,7 @@
     /** 定庄（全员选完或抢庄超时时调用）。幂等：只在 robbing 阶段生效一次。 */
     _finishRobbing() {
       if (this.phase !== 'robbing') return;
-      const players = this.seats.filter(Boolean);
+      const players = this._roundPlayers();
       // 超时未选的视为不抢
       players.forEach((p) => {
         if (!Object.prototype.hasOwnProperty.call(this.robChoices, p.seat)) {
@@ -231,27 +283,77 @@
       const robers = players.filter((p) => this.robChoices[p.seat]);
       const pool = robers.length ? robers : players; // 没人抢则随机一位当庄
       this.bankerSeat = pool[Math.floor(Math.random() * pool.length)].seat;
-      // 庄家无需操作：自动亮牌，倍数固定 1
+      // 庄家无需操作：定庄即自动亮牌（可见自己 5 张），倍数固定 1
       this.revealed.add(this.bankerSeat);
       this.multipliers[this.bankerSeat] = 1;
+      // 定庄后先进入下注阶段：闲家选倍数（此时只见自己前 4 张），下注后立即可亮牌
+      this.phase = 'betting';
+      this._clearTimers();
+      this.deadline = this.revealSeconds > 0 ? Date.now() + this.revealSeconds * 1000 : null;
+      this._schedule(() => this._finishBetting(), this.revealSeconds);
+      this._touch();
+    }
+
+    /** 闲家下注选倍数（5/8/12，非法值回退 5）；选完不可改；全员下注或超时后进入亮牌。 */
+    bet(seat, mult, reqId) {
+      this._checkTimeout();
+      if (this._seen(reqId)) return { ok: false, ignored: true };
+      if (this.phase !== 'betting') return { ok: false, error: '当前不在下注阶段' };
+      if (!this.seats[seat]) return { ok: false, error: '无效座位' };
+      if (this.roundSeats.indexOf(seat) === -1) return { ok: true }; // 旁观者不参与本局
+      if (seat === this.bankerSeat) return { ok: true }; // 庄家倍数固定 1，无需下注
+      if (Object.prototype.hasOwnProperty.call(this.multipliers, seat)) return { ok: true };
+
+      this.multipliers[seat] = MULTIPLIERS.includes(mult) ? mult : MULTIPLIERS[0];
+      const nonBankers = this._roundPlayers().filter((p) => p.seat !== this.bankerSeat);
+      const allBet = nonBankers.every((p) => Object.prototype.hasOwnProperty.call(this.multipliers, p.seat));
+      if (allBet && this.revealed.size >= this._roundPlayers().length) {
+        this._settle(); // 所有人都提前亮完了
+      } else if (allBet) {
+        this._startRevealing();
+      } else {
+        this._touch();
+      }
+      return { ok: true };
+    }
+
+    /** 下注超时：未下注的闲家按 ×5 兜底，随后进入亮牌阶段。幂等。 */
+    _finishBetting() {
+      if (this.phase !== 'betting') return;
+      this._roundPlayers().forEach((p) => {
+        if (p.seat !== this.bankerSeat && !Object.prototype.hasOwnProperty.call(this.multipliers, p.seat)) {
+          this.multipliers[p.seat] = MULTIPLIERS[0];
+        }
+      });
+      this._startRevealing();
+    }
+
+    /** 全员下注完成后进入亮牌阶段（未亮的闲家继续点亮牌）。 */
+    _startRevealing() {
       this.phase = 'revealing';
       this._clearTimers();
-      this.deadline = Date.now() + this.revealSeconds * 1000;
+      this.deadline = this.revealSeconds > 0 ? Date.now() + this.revealSeconds * 1000 : null;
       this._schedule(() => this._finishRevealing(), this.revealSeconds);
       this._touch();
     }
 
-    /** 闲家亮牌并选定倍数（5/8/12，非法值回退 5）；全员亮完或超时后结算。 */
+    /** 闲家亮牌：下过注后立即可亮（不必等其他人下注完）；亮牌后本人可见完整 5 张。 */
     reveal(seat, mult, reqId) {
+      this._checkTimeout();
       if (this._seen(reqId)) return { ok: false, ignored: true };
-      if (this.phase !== 'revealing') return { ok: false, error: '当前不在亮牌阶段' };
+      if (this.phase !== 'betting' && this.phase !== 'revealing') {
+        return { ok: false, error: '当前不在亮牌阶段' };
+      }
       if (!this.seats[seat]) return { ok: false, error: '无效座位' };
-      if (seat === this.bankerSeat) return { ok: true }; // 庄家已自动亮牌
-      if (this.revealed.has(seat)) return { ok: true }; // 已亮牌，倍数不可再改
+      if (this.roundSeats.indexOf(seat) === -1) return { ok: true }; // 旁观者不参与本局
+      if (seat === this.bankerSeat) return { ok: true }; // 庄家定庄时已自动亮牌
+      if (this.revealed.has(seat)) return { ok: true }; // 已亮牌
+      if (this.phase === 'betting' && !Object.prototype.hasOwnProperty.call(this.multipliers, seat)) {
+        return { ok: false, error: '请先下注再亮牌' };
+      }
 
       this.revealed.add(seat);
-      this.multipliers[seat] = MULTIPLIERS.includes(mult) ? mult : MULTIPLIERS[0];
-      const total = this.seats.filter(Boolean).length;
+      const total = this._roundPlayers().length;
       if (this.revealed.size >= total) {
         this._settle();
       } else {
@@ -260,23 +362,20 @@
       return { ok: true };
     }
 
-    /** 亮牌超时：未亮的闲家按 ×5 自动亮牌，随后结算。幂等。 */
+    /** 亮牌超时：未亮的闲牌自动亮出，随后结算。幂等。 */
     _finishRevealing() {
       if (this.phase !== 'revealing') return;
-      this.seats.filter(Boolean).forEach((p) => {
-        if (!this.revealed.has(p.seat)) {
-          this.revealed.add(p.seat);
-          this.multipliers[p.seat] = MULTIPLIERS[0];
-        }
+      this._roundPlayers().forEach((p) => {
+        this.revealed.add(p.seat);
       });
       this._settle();
     }
 
     _settle() {
-      if (this.phase !== 'revealing') return;
+      if (this.phase !== 'revealing' && this.phase !== 'betting') return; // betting 阶段全员提前亮完也可能直接结算
       this._clearTimers();
       this.deadline = null;
-      const players = this.seats.filter(Boolean);
+      const players = this._roundPlayers();
       const evals = new Map();
       players.forEach((p) => evals.set(p.seat, Eval.evaluateHand(this.hands[p.seat])));
 
@@ -342,21 +441,28 @@
         });
       }
       const ownSeat = Number.isInteger(seat) ? seat : null;
-      const timed = this.phase === 'robbing' || this.phase === 'revealing';
+      const timed = this.phase === 'robbing' || this.phase === 'betting' || this.phase === 'revealing';
       const ownHand = (ownSeat !== null && this.hands[ownSeat]) ? this.hands[ownSeat] : null;
-      // 暗牌：结算前第 5 张牌对本人也不下发（不仅是不渲染），结算后才公开
-      const hideHole = !!ownHand && !showdown;
+      // 暗牌：点过「亮牌」（或庄家定庄自动亮）后本人可见全部 5 张，否则只见前 4 张；
+      // 他人牌面结算前一律不公开，全员亮完结算后一起亮出
+      const hideHole = !!ownHand && !showdown && !this.revealed.has(ownSeat);
 
       return {
         roomId: this.roomId,
         phase: this.phase,
         round: this.round,
         totalRounds: this.totalRounds,
+        maxPlayers: this.maxPlayers,
         hostSeat: this.hostSeat,
         bankerSeat: this.bankerSeat,
         secondsLeft: timed && this.deadline
           ? Math.max(0, Math.ceil((this.deadline - Date.now()) / 1000))
           : null,
+        startingIn: this._autoStartPending && this.autoStartAt
+          ? Math.max(0, Math.ceil((this.autoStartAt - Date.now()) / 1000))
+          : null,
+        roundSeats: this.roundSeats.slice(),
+        inRound: ownSeat === null ? false : (timed ? this.roundSeats.indexOf(ownSeat) !== -1 : true),
         seats: this.seats.map((p) => p ? {
           seat: p.seat,
           name: p.name,
@@ -364,6 +470,8 @@
           connected: p.connected,
           ready: this.readySet.has(p.seat),
           rob: Object.prototype.hasOwnProperty.call(this.robChoices, p.seat) ? this.robChoices[p.seat] : null,
+          bet: (p.seat !== this.bankerSeat && Object.prototype.hasOwnProperty.call(this.multipliers, p.seat))
+            ? this.multipliers[p.seat] : null,
           revealed: this.revealed.has(p.seat),
           mult: this.revealed.has(p.seat) ? (this.multipliers[p.seat] || null) : null,
           cardCount: this.hands[p.seat] ? this.hands[p.seat].length : 0
