@@ -855,6 +855,8 @@
     $('room').hidden = false;
     $('netBadge').textContent = (app.mode === 'host' ? '房主 · 房间 ' : '玩家 · 房间 ') + app.roomId;
     $('netBadge').className = 'net-badge ' + (app.mode === 'host' ? 'host' : 'guest');
+    // 地址栏带上 ?room=：微信里直接「···→发送给朋友」转发的链接就含房间号
+    try { history.replaceState(null, '', location.pathname + '?room=' + app.roomId); } catch (e) { /* ignore */ }
   }
 
   function resetToLobby(clearSession) {
