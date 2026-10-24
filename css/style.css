@@ -11,6 +11,14 @@
 
 * { box-sizing: border-box; }
 
+/* 关键修复：.actions/.reveal-wrap 等类自带 display 会覆盖浏览器对 hidden 属性的默认隐藏，
+   导致按钮全部常驻显示；这里强制 hidden 生效，按钮展示完全由 JS 按流程阶段控制 */
+[hidden] { display: none !important; }
+
+/* 可点击复制的房间号 */
+.copyable { cursor: pointer; user-select: all; }
+.copyable:hover { text-decoration: underline; color: var(--gold); }
+
 html, body { margin: 0; min-height: 100%; }
 
 body {
@@ -21,13 +29,25 @@ body {
     var(--bg-deep);
   color: var(--text);
   min-height: 100vh;
-  padding: 26px 16px 64px;
+  padding: 14px 16px 24px;
 }
 
 h1, h2, p, ul { margin: 0; }
 ul { padding: 0; list-style: none; }
 
 .app { max-width: 900px; margin: 0 auto; }
+
+/* 房间界面：主体用 flex 列布局自适应视口高度，牌桌吃剩余空间，任何窗口高度都不出滚动条 */
+/* 进入房间后隐藏顶部品牌头（房间栏已有房间号/网络状态），视口高度全部留给牌桌 */
+body:has(#room:not([hidden])) header { display: none; }
+#room {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 38px);
+}
+#room .table-wrap { flex: 1 1 auto; min-height: 200px; height: auto; margin-bottom: 0; }
+#room > .panel, #room > .status-line { flex: 0 0 auto; }
+#room .seat-grid { height: 100%; }
 
 header {
   display: flex;
@@ -210,77 +230,97 @@ input:focus {
 .status-line.bad { color: #ffb3ae; border-left-color: var(--red); }
 
 /* 座位 */
-.seat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+.table-wrap {
+  position: relative;
   margin-bottom: 16px;
 }
+.table-felt {
+  position: absolute;
+  inset: 12% 15%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(38, 122, 74, 0.9), rgba(20, 74, 44, 0.95));
+  border: 6px solid rgba(94, 62, 32, 0.85);
+  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.seat-grid {
+  position: relative;
+  height: 380px;
+  margin: 0;
+}
+/* 座位：小头像 + 昵称 + 积分/状态，环绕牌桌分布，节省纵向空间 */
 .seat {
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.03));
-  border: 1px solid var(--line);
-  border-radius: 13px;
-  padding: 13px 14px;
-  min-height: 76px;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 76px;
+  text-align: center;
 }
-.seat.empty {
-  border-style: dashed;
-  opacity: 0.6;
-}
-.seat.me {
-  border-color: rgba(240, 194, 77, 0.65);
-  box-shadow: 0 0 0 1px rgba(240, 194, 77, 0.2) inset;
-}
-.seat-name {
-  font-size: 14.5px;
-  font-weight: 600;
+.seat-avatar {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-  word-break: break-all;
+  justify-content: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: #eaf6f0;
+  background: linear-gradient(180deg, #2a6b57, #17473a);
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
 }
-.seat-sub {
-  font-size: 12px;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
+.seat-avatar.off { filter: grayscale(0.9); opacity: 0.65; }
+.seat.me .seat-avatar {
+  border-color: rgba(240, 194, 77, 0.8);
+  box-shadow: 0 0 10px rgba(240, 194, 77, 0.35);
 }
-.seat-sub strong { color: var(--text); font-weight: 600; }
-
-.tag {
-  font-size: 10px;
-  padding: 1px 6px;
+.seat.empty { opacity: 0.55; }
+.seat-avatar.empty-avatar {
+  background: transparent;
+  border: 2px dashed var(--line);
+  box-shadow: none;
+}
+.mini-badge {
+  position: absolute;
+  top: -6px;
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 5px;
   border-radius: 999px;
-  border: 1px solid var(--line);
-  font-weight: 500;
-  letter-spacing: 0.5px;
-}
-.tag.host { color: var(--gold); border-color: rgba(240, 194, 77, 0.55); }
-.tag.banker {
-  color: #3a2703;
-  background: linear-gradient(180deg, #f7d372, #e2a72e);
-  border-color: transparent;
   font-weight: 700;
 }
-.tag.ok { color: var(--green); border-color: rgba(47, 191, 143, 0.5); }
-.tag.wait { color: var(--muted); }
-.tag.bad { color: var(--red); border-color: rgba(224, 96, 92, 0.5); }
-
-.dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  display: inline-block;
+.mini-badge.host {
+  left: -8px;
+  color: var(--gold);
+  border: 1px solid rgba(240, 194, 77, 0.55);
+  background: rgba(8, 30, 25, 0.9);
 }
-.dot.on { background: var(--green); box-shadow: 0 0 6px rgba(47, 191, 143, 0.8); }
-.dot.off { background: var(--red); }
+.mini-badge.banker {
+  right: -8px;
+  color: #3a2703;
+  background: linear-gradient(180deg, #f7d372, #e2a72e);
+}
+.seat-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-top: 3px;
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seat-score {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.seat-score .st.ok { color: var(--green); }
+.seat-score .st.wait { color: var(--muted); }
+.seat-score .st.bad { color: var(--red); }
 
 /* 手牌 */
-.hand-panel { margin-bottom: 16px; }
 .panel-head {
   display: flex;
   align-items: baseline;
@@ -291,84 +331,111 @@ input:focus {
 .panel-head h2 { font-size: 15px; font-weight: 600; letter-spacing: 1px; }
 .hand-label { font-size: 12.5px; color: var(--gold); }
 
-.hand {
+/* 牌直接摆在牌桌毡面上：每个座位内侧半径 60% 处的一手牌（不占座位卡片高度） */
+.table-cards {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.table-hand {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  gap: 2px;
+  justify-content: center;
+  align-items: center;
+}
+.mini-card {
+  width: 24px;
+  height: 34px;
+  border-radius: 4px;
+  background: #fdfdf8;
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: -0.5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  flex: none;
+}
+.mini-card.red { color: #c62828; }
+.mini-card.back {
+  background: repeating-linear-gradient(45deg, #0f5132, #0f5132 3px, #0a3b24 3px, #0a3b24 6px);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+.table-hand.mine .mini-card { width: 30px; height: 42px; font-size: 13px; }
+
+/* 准备按钮：缩小后放在牌桌毡面正中央，仅大厅/结算阶段由 JS 控制显示 */
+.table-ready-btn {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  padding: 8px 20px;
+  font-size: 13.5px;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+.table-ready-btn:active:not(:disabled) { transform: translate(-50%, calc(-50% + 1px)); }
+
+/* 抢庄/不抢：牌桌毡面正中央，仅抢庄阶段由 JS 控制显示 */
+.table-rob-wrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
   display: flex;
   gap: 10px;
-  flex-wrap: wrap;
-  min-height: 104px;
-  align-items: center;
+}
+.table-rob-wrap .rob-btn {
+  padding: 8px 20px;
+  font-size: 13.5px;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* 亮牌倍数按钮与等待提示文字：同样居中摆在牌桌毡面上，页面不再为操作区留高度 */
+.table-reveal-wrap {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+}
+.table-reveal-wrap .mult-btn {
+  padding: 8px 16px;
+  font-size: 13.5px;
+  border-radius: 999px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+.table-center-info {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  font-size: 13px;
+  color: var(--gold);
+  background: rgba(8, 30, 25, 0.78);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 16px;
+  white-space: nowrap;
+}
+
+/* 结算与战绩面板：跟随文档流展示在桌面下方，不用弹框 */
+#historyPanel.panel {
+  width: 100%;
+  margin-top: 120px;
 }
 .muted { color: var(--muted); font-size: 13px; }
-
-.pcard {
-  width: 66px;
-  height: 94px;
-  flex: 0 0 auto;
-  background: #fcfaf3;
-  color: #1b2220;
-  border-radius: 8px;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  animation: deal 0.22s ease both;
-}
-.pcard .corner {
-  position: absolute;
-  top: 7px;
-  left: 8px;
-  font-size: 13px;
-  line-height: 1.1;
-  font-weight: 700;
-  text-align: center;
-}
-.pcard .big {
-  font-size: 34px;
-  opacity: 0.9;
-  transform: translateY(2px);
-}
-.pcard.red, .mcard.red { color: #c02f2f; }
-
-.pcard.back {
-  background: repeating-linear-gradient(45deg, #10453a, #10453a 6px, #176052 6px, #176052 12px);
-  border: 1px solid rgba(255, 255, 255, 0.28);
-  color: var(--gold);
-}
-.pcard.back .big {
-  font-size: 30px;
-  opacity: 0.85;
-  font-weight: 700;
-}
-
-@keyframes deal {
-  from { transform: translateY(-8px) scale(0.96); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
-
-.actions {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  align-items: center;
-  margin: 4px 0 18px;
-}
-.actions .btn { min-width: 150px; padding: 12px 24px; font-size: 15.5px; }
-
-.reveal-wrap {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-.reveal-wrap .mult-btn { min-width: 120px; }
-
-.revealed-info {
-  font-size: 13.5px;
-  color: var(--gold);
-  padding: 10px 4px;
-}
 
 .countdown {
   font-size: 12.5px;
@@ -401,8 +468,6 @@ input:focus {
 
 /* ---------- 战绩记录 ---------- */
 .history-body {
-  max-height: 400px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -438,34 +503,6 @@ input:focus {
   50% { opacity: 0.55; }
 }
 
-/* 结算 */
-.table-wrap { overflow-x: auto; }
-.result-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.result-table th, .result-table td {
-  padding: 9px 8px;
-  text-align: left;
-  border-bottom: 1px solid var(--line);
-  white-space: nowrap;
-}
-.result-table th { color: var(--muted); font-weight: 500; font-size: 12px; }
-.result-table tr.me td { background: rgba(240, 194, 77, 0.09); }
-.result-table td:first-child { color: var(--gold); font-weight: 600; }
-
-.mcard {
-  display: inline-block;
-  padding: 1px 5px;
-  margin-right: 3px;
-  border-radius: 4px;
-  background: #fcfaf3;
-  color: #1b2220;
-  font-size: 11.5px;
-  font-weight: 600;
-}
-
 /* toast */
 .toast {
   position: fixed;
@@ -491,10 +528,13 @@ input:focus {
 .toast.error { border-color: rgba(224, 96, 92, 0.65); color: #ffd6d3; }
 
 @media (max-width: 720px) {
-  .seat-grid { grid-template-columns: repeat(2, 1fr); }
+  .seat { width: 60px; }
+  .seat-avatar { width: 36px; height: 36px; font-size: 14px; }
+  .mini-card { width: 19px; height: 27px; font-size: 9px; border-radius: 3px; }
+  .table-hand.mine .mini-card { width: 23px; height: 32px; font-size: 11px; }
+  .table-felt { inset: 12% 6%; }
+  .seat-label { font-size: 10.5px; max-width: 60px; }
+  .seat-score { font-size: 9px; }
   .brand h1 { font-size: 21px; }
   .room-bar { align-items: flex-start; }
-  .actions .btn { flex: 1; min-width: 0; }
-  .pcard { width: 58px; height: 84px; }
-  .pcard .big { font-size: 28px; }
 }
