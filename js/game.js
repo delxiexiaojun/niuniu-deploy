@@ -19,7 +19,7 @@
   const MULTIPLIERS = [5, 8, 12];
   const ROB_SECONDS = 10;
   const REVEAL_SECONDS = 20;
-  const READY_DELAY_SECONDS = 10; // 至少 2 人准备后到自动开局的缓冲秒数
+  const READY_DELAY_SECONDS = 5; // 至少 2 人准备后到自动开局的缓冲秒数
   const TOTAL_ROUNDS = 12;
   const SUITS = ['♠', '♥', '♦', '♣'];
   const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
