@@ -173,6 +173,8 @@
       if (room.members.get(conn.seat) !== conn) return;
       if (typeof msg.data !== 'string' || !msg.data || msg.data.length > 300000) return;
       relayVoice(room, conn.seat, msg, conn);
+      // 房主自己也要听到：语音经房主中转，同时投递给本页面播放
+      emit({ t: 'voice', seat: conn.seat, data: msg.data, mime: msg.mime, dur: msg.dur });
       return;
     }
 
