@@ -356,6 +356,17 @@ input:focus {
 .seat.me .seat-avatar {
   border-color: rgba(240, 194, 77, 0.8);
   box-shadow: 0 0 10px rgba(240, 194, 77, 0.35);
+  cursor: pointer;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+/* 自己的头像＝录音键：录音中头像变红并脉冲 */
+.seat.me .seat-avatar.rec {
+  border-color: rgba(224, 96, 92, 0.95);
+  box-shadow: 0 0 0 4px rgba(224, 96, 92, 0.28), 0 0 14px rgba(224, 96, 92, 0.6);
+  background: linear-gradient(180deg, #a63a37, #6d2320);
+  animation: pulse 1s ease infinite;
 }
 .seat.empty { opacity: 0.55; }
 .seat-avatar.empty-avatar {
