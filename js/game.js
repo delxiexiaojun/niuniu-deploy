@@ -214,6 +214,18 @@
       this._touch();
     }
 
+    /** 服务器托管模式下玩家断线：座位与 token 保留（可重连），但撤回准备状态，避免掉线玩家拖住自动开局 */
+    disconnect(seat) {
+      if (!this.seats[seat]) return;
+      this.readySet.delete(seat);
+      this.markConnected(seat, false);
+    }
+
+    /** 是否正处于「准备满 2 人、等待自动开局」的倒计时中（服务端据此避免关房抢先） */
+    startingSoon() {
+      return !!this._autoStartPending;
+    }
+
     /** 整场打完后重新开始：清空比分/战绩/局数回到大厅，座位与 token 保留，重新准备开局 */
     restart(seat, reqId) {
       this._checkTimeout();
