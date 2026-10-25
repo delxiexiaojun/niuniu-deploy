@@ -209,6 +209,15 @@
       return;
     }
 
+    if (raw.t === 'voice') {
+      try {
+        const p = app.view && app.view.seats ? app.view.seats[raw.seat] : null;
+        toast('「' + (p ? p.name : '玩家') + '」发来语音（' + (raw.dur || 1) + 's）', 'ok');
+        playVoice(raw);
+      } catch (e) { /* 忽略 */ }
+      return;
+    }
+
     if (raw.t === 'state') {
       if (!app.view) {
         clearJoinTimer();
@@ -775,15 +784,27 @@
     body.innerHTML = summaryHtml + roundsHtml;
   }
 
-  /** 战绩与规则互斥：展开战绩时隐藏规则条，收起战绩后规则条重新显示 */
+  /** 战绩面板展开/收起；玩法规则已改为弹框，不再与战绩互斥 */
   function toggleHistory() {
     const panel = $('historyPanel');
     panel.hidden = !panel.hidden;
-    $('rulesBar').hidden = !panel.hidden;
     if (!panel.hidden && app.view) {
       renderHistory(app.view);
       panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
+  }
+
+  /* ---------------- 玩法弹框 ---------------- */
+
+  function openRules() {
+    const modal = $('rulesModal');
+    if (!modal) return;
+    modal.hidden = false;
+  }
+
+  function closeRules() {
+    const modal = $('rulesModal');
+    if (modal) modal.hidden = true;
   }
 
   function renderControls(view) {
@@ -916,6 +937,7 @@
     app.closeLeft = null;
     app.phaseLeft = null;
     stopAlive();
+    stopVoiceIfAny();
     Net.close(); // 主动离开：不再自动重连
 
     if (clearSession) {
@@ -1014,6 +1036,121 @@
     toast('已离开房间', 'ok');
   }
 
+  /* ---------------- 语音留言 ---------------- */
+  // 点一下开始录音，再点一下结束并发送；单条最长 8 秒，8kbps 级压缩后体积很小
+  const VOICE_MAX_MS = 8000;
+  const voice = { rec: null, chunks: [], stream: null, timer: null, startedAt: 0 };
+
+  function voiceMime() {
+    if (typeof MediaRecorder === 'undefined') return null;
+    const list = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+    for (let i = 0; i < list.length; i++) {
+      try { if (MediaRecorder.isTypeSupported(list[i])) return list[i]; } catch (e) { /* 忽略 */ }
+    }
+    return '';
+  }
+
+  function resetMicBtn() {
+    const btn = $('btnMic');
+    if (btn) { btn.textContent = '🎤'; btn.classList.remove('rec'); }
+  }
+
+  /** 结束录音：停掉轨道并把音频以 base64 发给房主转发 */
+  function stopVoice() {
+    const rec = voice.rec;
+    if (!rec || rec.state !== 'recording') return;
+    try { rec.stop(); } catch (e) { /* 忽略 */ }
+  }
+
+  function startVoice() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('当前浏览器不支持录音，请用系统浏览器打开', 'warn');
+      return;
+    }
+    const mime = voiceMime();
+    if (mime === null) { toast('当前浏览器不支持录音', 'warn'); return; }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+      let rec;
+      try {
+        rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 16000 } : { audioBitsPerSecond: 16000 });
+      } catch (e) {
+        try { stream.getTracks().forEach((t) => t.stop()); } catch (err) { /* 忽略 */ }
+        toast('录音初始化失败：' + errText(e), 'warn');
+        return;
+      }
+      voice.stream = stream;
+      voice.rec = rec;
+      voice.chunks = [];
+      voice.startedAt = Date.now();
+
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) voice.chunks.push(e.data); };
+      rec.onstop = () => {
+        clearTimeout(voice.timer);
+        voice.timer = null;
+        resetMicBtn();
+        try { stream.getTracks().forEach((t) => t.stop()); } catch (e) { /* 忽略 */ }
+        const type = (rec.mimeType || 'audio/webm');
+        const blob = new Blob(voice.chunks, { type: type });
+        const secs = Math.max(1, Math.round((Date.now() - voice.startedAt) / 1000));
+        voice.rec = null; voice.chunks = []; voice.stream = null;
+        if (!blob.size) { toast('没录到声音，请重试', 'warn'); return; }
+        if (secs > 9) { toast('语音太长，请控制在 8 秒内', 'warn'); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const data = String(reader.result).split(',')[1] || '';
+            if (!data) { toast('语音编码失败', 'error'); return; }
+            if (data.length > 280000) { toast('语音太大，发送失败', 'warn'); return; }
+            if (!Net.send({ t: 'voice', data: data, mime: blob.type, dur: secs })) {
+              toast('与房主连接中断，语音未发送', 'warn');
+              return;
+            }
+            toast('语音已发送（' + secs + 's）', 'ok');
+          } catch (e) {
+            toast('语音发送失败', 'error');
+          }
+        };
+        reader.onerror = () => toast('语音读取失败', 'error');
+        reader.readAsDataURL(blob);
+      };
+
+      rec.start();
+      const btn = $('btnMic');
+      if (btn) { btn.textContent = '⏹'; btn.classList.add('rec'); }
+      toast('正在录音，点一下结束并发送（最长 8 秒）', 'ok');
+      voice.timer = setTimeout(() => { try { stopVoice(); } catch (e) { /* 忽略 */ } }, VOICE_MAX_MS);
+    }).catch((err) => {
+      resetMicBtn();
+      toast('无法使用麦克风：' + errText(err), 'warn');
+    });
+  }
+
+  function toggleVoice() {
+    if (voice.rec && voice.rec.state === 'recording') { stopVoice(); return; }
+    if (app.dead) { toast('与房主连接中断，暂时不能发语音', 'warn'); return; }
+    startVoice();
+  }
+
+  /** 收到别人的语音：解码后直接播放，失败只提示不阻断游戏 */
+  function playVoice(msg) {
+    try {
+      const bin = atob(String(msg.data || ''));
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([arr], { type: msg.mime || 'audio/webm' }));
+      const audio = new Audio(url);
+      audio.onended = () => { try { URL.revokeObjectURL(url); } catch (e) { /* 忽略 */ } };
+      const p = audio.play();
+      if (p && p.catch) {
+        p.catch(() => { toast('收到语音，点一下页面即可播放', 'warn'); });
+      }
+    } catch (e) { /* 忽略 */ }
+  }
+
+  function stopVoiceIfAny() {
+    try { if (voice.rec && voice.rec.state === 'recording') stopVoice(); } catch (e) { /* 忽略 */ }
+  }
+
   /* ---------------- 启动 ---------------- */
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -1055,6 +1192,15 @@
     $('btnRestart').addEventListener('click', actRestart);
     $('btnLeave').addEventListener('click', leaveRoom);
     $('btnShare').addEventListener('click', copyShareLink);
+    $('btnMic').addEventListener('click', toggleVoice);
+    $('btnRules').addEventListener('click', openRules);
+    $('btnRulesClose').addEventListener('click', closeRules);
+    $('rulesModal').addEventListener('click', (e) => {
+      if (e.target && e.target.id === 'rulesModal') closeRules();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeRules();
+    });
 
     // 分享链接进入：?room=XXXXXX 切到独立入房界面（只填昵称，不预填）
     try {
