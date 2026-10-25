@@ -355,13 +355,24 @@ input:focus {
   white-space: nowrap;
 }
 .seat-score {
-  font-size: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.seat-state {
+  font-size: 9.5px;
+  line-height: 1.25;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.seat-score .st.ok { color: var(--green); }
-.seat-score .st.wait { color: var(--muted); }
-.seat-score .st.bad { color: var(--red); }
+.seat-score .st.ok, .seat-state .st.ok { color: var(--green); }
+.seat-score .st.wait, .seat-state .st.wait { color: var(--muted); }
+.seat-score .st.bad, .seat-state .st.bad { color: var(--red); }
 
 /* 手牌 */
 .panel-head {
@@ -600,7 +611,7 @@ input:focus {
   .table-hand.mine .mini-card b:last-of-type { font-size: 12.5px; }
   .table-felt { inset: 12% 6%; }
   .seat-label { font-size: 10.5px; max-width: 60px; }
-  .seat-score { font-size: 9px; }
+  .seat-score { font-size: 12.5px; }
   .score-float { font-size: 16px; }
   .brand h1 { font-size: 21px; }
   .room-bar { align-items: flex-start; }
