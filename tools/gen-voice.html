@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>牛牛语音生成</title></head>
+<body style="font-family:monospace;background:#111;color:#9f9;padding:20px">
+<h3>Edge-TTS 语音生成中…（已获用户授权的固定短语合成）</h3>
+<pre id="log">启动…</pre>
+<script>
+'use strict';
+/*
+ * 浏览器端 Edge-TTS：WebSocket 直连 speech.platform.bing.com，
+ * 合成固定播报短语为 mp3，再 POST 回本地静态服务器落盘到 audio/。
+ * 已由用户明确授权本次对外请求（仅发送固定短语，无隐私数据）。
+ */
+const VOICE = 'zh-CN-XiaoxiaoNeural'; // 甜美女声；粤语可换 zh-HK-HiuGaaiNeural
+const CLIPS = {
+  deal: '发牌咯', rob: '抢庄！', norob: '不抢',
+  bet5: '下注，五倍', bet8: '下注，八倍', bet12: '下注，十二倍',
+  show: '亮牌！', win: '恭喜你赢啦', lose: '这局输了', push: '这局平局',
+  over: '对局全部结束，谢谢参与',
+  n0: '没牛',
+  n1: '牛一', n2: '牛二', n3: '牛三', n4: '牛四', n5: '牛五',
+  n6: '牛六', n7: '牛七', n8: '牛八', n9: '牛九',
+  nn: '牛牛！', whn: '五花牛！', szn: '四炸！', wxn: '五小牛！'
+};
+const logEl = document.getElementById('log');
+function log(msg) { logEl.textContent += '\n' + msg; }
+function hex(n) {
+  const a = new Uint8Array(n);
+  crypto.getRandomValues(a);
+  return Array.from(a, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function synth(text) {
+  return new Promise((resolve, reject) => {
+    const url = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1' +
+      '?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&ConnectionId=' + hex(16);
+    const ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    const parts = [];
+    const timer = setTimeout(() => { ws.close(); reject(new Error('timeout')); }, 15000);
+    ws.onopen = () => {
+      const ts = new Date().toISOString();
+      ws.send('X-Timestamp:' + ts + '\r\nContent-Type:application/json; charset=utf-8\r\n' +
+        'Path:speech.config\r\n\r\n' +
+        '{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false",' +
+        '"wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}');
+      const ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'>" +
+        "<voice name='" + VOICE + "'><prosody pitch='+6Hz' rate='-5%'>" + text + '</prosody></voice></speak>';
+      ws.send('X-RequestId:' + hex(16) + '\r\nContent-Type:application/ssml+xml\r\n' +
+        'X-Timestamp:' + ts + '\r\nPath:ssml\r\n\r\n' + ssml);
+    };
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        if (ev.data.includes('Path:turn.end')) {
+          clearTimeout(timer);
+          ws.close();
+          resolve(parts);
+        }
+        return;
+      }
+      const buf = new Uint8Array(ev.data);
+      const hlen = (buf[0] << 8) | buf[1];
+      const head = new TextDecoder().decode(buf.slice(2, 2 + hlen));
+      if (head.includes('Path:audio')) parts.push(buf.slice(2 + hlen));
+    };
+    ws.onerror = () => { clearTimeout(timer); reject(new Error('ws error')); };
+  });
+}
+
+(async () => {
+  const keys = Object.keys(CLIPS);
+  let ok = 0;
+  for (const k of keys) {
+    try {
+      const parts = await synth(CLIPS[k]);
+      const total = parts.reduce((n, p) => n + p.length, 0);
+      if (!total) throw new Error('empty');
+      const blob = new Blob(parts, { type: 'audio/mpeg' });
+      const resp = await fetch('/__save-voice?name=' + encodeURIComponent(k), { method: 'POST', body: blob });
+      if (!resp.ok) throw new Error('save http ' + resp.status);
+      ok++;
+      log('OK  ' + k + '.mp3  ' + CLIPS[k] + '  (' + total + 'B)');
+    } catch (err) {
+      log('ERR ' + k + ': ' + err.message);
+    }
+  }
+  log('DONE ' + ok + '/' + keys.length);
+  document.title = 'DONE ' + ok + '/' + keys.length;
+})();
+</script>
+</body>
+</html>
