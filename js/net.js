@@ -100,6 +100,16 @@
     emit({ t: 'state', view: viewFor(room, net._seat) });
   }
 
+  /** 语音留言：房主只做中转，不落库；按发送者座位标注来源，跳过发送者自己的连接 */
+  function relayVoice(room, seat, msg, skipConn) {
+    if (!room || room.closed) return false;
+    const payload = { t: 'voice', seat: seat, data: msg.data, mime: msg.mime, dur: msg.dur };
+    room.members.forEach((conn) => {
+      if (conn && conn !== skipConn) sendRaw(conn, payload);
+    });
+    return true;
+  }
+
   function dropGuest(room, conn) {
     if (!room || room.closed) return;
     const seat = conn.seat;
@@ -156,6 +166,13 @@
       conn.seat = null;
       try { room.engine.disconnect(seat); } catch (e) { /* 忽略 */ }
       broadcast(room);
+      return;
+    }
+
+    if (msg.t === 'voice') {
+      if (room.members.get(conn.seat) !== conn) return;
+      if (typeof msg.data !== 'string' || !msg.data || msg.data.length > 300000) return;
+      relayVoice(room, conn.seat, msg, conn);
       return;
     }
 
@@ -335,6 +352,10 @@
       const room = net._room;
       if (!room || room.closed) return false;
       if (msg.t === 'ping') return true;
+      if (msg.t === 'voice') {
+        relayVoice(room, net._seat, msg, null);
+        return true;
+      }
       if (msg.t === 'leave') {
         closeRoom(room, 'closed', false);
         return true;
