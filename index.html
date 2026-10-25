@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>牛牛 · 众神归位</title>
-  <link rel="stylesheet" href="css/style.css?v=20261026a">
+  <link rel="stylesheet" href="css/style.css?v=20261026b">
 </head>
 <body>
   <div class="app">
     <header>
       <div class="brand">
         <h1>牛牛 <span>斗牛场</span></h1>
-        <p class="sub">服务器托管牌局 · 创建者退出不影响房间 · 无真钱下注</p>
+        <p class="sub">P2P 好友房 · 房主浏览器负责发牌结算 · 无真钱下注</p>
       </div>
       <div id="netBadge" class="net-badge"></div>
     </header>
@@ -52,9 +52,9 @@
       <p id="lobbyMsg" class="msg"></p>
 
       <ul class="tips">
-        <li>房间由服务器托管：洗牌、发牌、牛牛判定、比牌结算都在服务端完成。</li>
-        <li>创建者退出或掉线只少一个玩家，房间继续；房间创建后 10 分钟内没人开局会自动关闭。</li>
-        <li>每个玩家只会收到自己的 5 张牌，全部亮牌后才公开牌面；掉线后可用本地 token 回原座位。</li>
+        <li>创建房间的浏览器就是房主：洗牌、发牌、牛牛判定、比牌结算都在房主端完成，不需要服务器。</li>
+        <li>房主关闭页面或掉线，房间会结束；房间创建后 10 分钟内没人开局也会自动关闭。</li>
+        <li>每个玩家只会收到自己的 5 张牌，全部亮牌后才公开牌面；掉线后可用本地凭证回原座位。</li>
       </ul>
     </section>
 
@@ -130,10 +130,12 @@
 
   <div id="toast" class="toast"></div>
 
-  <script src="js/evaluator.js?v=20261026a"></script>
-  <script src="js/game.js?v=20261026a"></script>
-  <script src="js/net.js?v=20261026a"></script>
-  <script src="js/sound.js?v=20261026a"></script>
-  <script src="js/app.js?v=20261026a"></script>
+  <script src="js/evaluator.js?v=20261026b"></script>
+  <script src="js/game.js?v=20261026b"></script>
+  <script src="js/peerjs.min.js?v=20261026b"></script>
+  <script src="js/peer.js?v=20261026b"></script>
+  <script src="js/net.js?v=20261026b"></script>
+  <script src="js/sound.js?v=20261026b"></script>
+  <script src="js/app.js?v=20261026b"></script>
 </body>
 </html>
