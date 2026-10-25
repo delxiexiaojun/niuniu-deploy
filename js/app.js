@@ -592,8 +592,8 @@
           '<div class="seat-avatar' + (player.connected ? '' : ' off') + '">' +
             esc(player.name.charAt(0) || '?') + badges.join('') + '</div>' +
           '<div class="seat-label">' + esc(player.name) + '</div>' +
-          '<div class="seat-score">' + score +
-            (status ? ' · <span class="st ' + statusCls + '">' + status + '</span>' : '') + '</div>';
+          '<div class="seat-score">' + score + '</div>' +
+          (status ? '<div class="seat-state"><span class="st ' + statusCls + '">' + status + '</span></div>' : '');
       }
       list.appendChild(item);
     }
