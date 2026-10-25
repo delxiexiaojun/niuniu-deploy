@@ -216,6 +216,28 @@ input:focus {
 .phase-info { font-size: 13px; color: var(--text); opacity: 0.86; }
 .room-actions { display: flex; gap: 8px; }
 
+/* 游戏规则条：常驻在房间栏与牌桌之间，紧凑换行，不额外制造滚动条 */
+.rules-bar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-bottom: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.rules-bar .rules-title {
+  color: var(--gold);
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
 /* 分享链接入房界面 */
 .share-room-code { text-align: center; padding: 6px 0 2px; }
 .share-room-code strong {
