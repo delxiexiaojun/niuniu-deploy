@@ -183,9 +183,9 @@ test('牌型层级：五小牛 > 五花牛 > 四炸 > 牛牛 > 牛九；同级�
   const flowersQ = E.evaluateHand([card('Q', '♠'), card('Q', '♥'), card('Q', '♦'), card('J', '♣'), card('J', '♠')]);
   assert.strictEqual(E.compareHands(flowersK, flowersQ), 1);
 
-  // 牛七/牛八 ×2、牛九 ×3、牛牛 ×3
+  // 牛七/牛八 ×2、牛九 ×3、牛牛 ×4
   assert.strictEqual(niu9.mult, 3);
-  assert.strictEqual(niuniu.mult, 3);
+  assert.strictEqual(niuniu.mult, 4);
   const niu7 = E.evaluateHand([card('A', '♠'), card('9', '♥'), card('10', '♦'), card('5', '♣'), card('2', '♠')]);
   const niu8 = E.evaluateHand([card('A', '♠'), card('9', '♥'), card('10', '♦'), card('6', '♣'), card('2', '♠')]);
   const niu6 = E.evaluateHand([card('A', '♠'), card('9', '♥'), card('10', '♦'), card('4', '♣'), card('2', '♠')]);
