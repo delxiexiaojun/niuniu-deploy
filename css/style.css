@@ -40,6 +40,9 @@ ul { padding: 0; list-style: none; }
 /* 房间界面：主体用 flex 列布局自适应视口高度，牌桌吃剩余空间，任何窗口高度都不出滚动条 */
 /* 进入房间后隐藏顶部品牌头（房间栏已有房间号/网络状态），视口高度全部留给牌桌 */
 body:has(#room:not([hidden])) header { display: none; }
+/* 进房后收紧页面内边距，牌桌铺满屏幕宽度 */
+body:has(#room:not([hidden])) { padding: 8px 6px 10px; }
+body:has(#room:not([hidden])) #room { height: calc(100vh - 18px); }
 #room {
   display: flex;
   flex-direction: column;
@@ -317,7 +320,7 @@ input:focus {
 }
 .table-felt {
   position: absolute;
-  inset: 12% 15%;
+  inset: 7% 2%;
   border-radius: 50%;
   background: radial-gradient(ellipse at center, rgba(38, 122, 74, 0.9), rgba(20, 74, 44, 0.95));
   border: 6px solid rgba(94, 62, 32, 0.85);
@@ -658,7 +661,7 @@ input:focus {
   .table-hand.mine .mini-card + .mini-card { margin-left: -21px; }
   .table-hand.mine .mini-card b:first-of-type { font-size: 15.5px; }
   .table-hand.mine .mini-card b:last-of-type { font-size: 12.5px; }
-  .table-felt { inset: 12% 6%; }
+  .table-felt { inset: 6% 1%; }
   .seat-label { font-size: 10.5px; max-width: 60px; }
   .seat-score { font-size: 12.5px; }
   .score-float { font-size: 16px; }
