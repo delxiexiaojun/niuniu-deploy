@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>牛牛 · 众神归位</title>
-  <link rel="stylesheet" href="css/style.css?v=20261026f">
+  <link rel="stylesheet" href="css/style.css?v=20261026g">
 </head>
 <body>
   <div class="app">
@@ -74,9 +74,12 @@
 
     <section id="room" hidden>
       <div class="panel room-bar">
-        <div class="room-code">房间号 <strong id="roomId" class="copyable" title="点击复制房间号">------</strong></div>
+        <div class="room-code">房间号 <strong id="roomId" class="copyable" title="点击复制房间号">------</strong>
+          <button id="btnRules" class="btn small ghost rules-btn" title="查看玩法规则">玩法</button>
+        </div>
         <div id="phaseInfo" class="phase-info"></div>
         <div class="room-actions">
+          <button id="btnMic" class="btn small" title="发语音">🎤</button>
           <button id="btnHistory" class="btn small">战绩记录</button>
           <button id="btnDownload" class="btn small gold" hidden>下载战绩图片</button>
           <button id="btnReconnect" class="btn small" hidden>重新连接</button>
@@ -84,14 +87,6 @@
           <button id="btnShare" class="btn small">分享链接</button>
           <button id="btnLeave" class="btn small ghost">离开房间</button>
         </div>
-      </div>
-
-      <!-- 游戏规则：默认常驻显示；点「战绩记录」展开战绩时隐藏，关闭战绩后重新显示 -->
-      <div id="rulesBar" class="rules-bar">
-        <span class="rules-title">玩法</span>
-        <span>抢庄 → 定庄 → 下注 → 亮牌 → 结算；满 2 人准备后自动开局</span>
-        <span>牌型倍数：五小牛×6 · 五花牛×5 · 牛牛/四炸×4 · 牛九×3 · 牛七/牛八×2 · 其余×1</span>
-        <span>结算：闲家下注倍数 × 胜方牌型倍数，庄家通吃通赔；每人只看自己的牌</span>
       </div>
 
       <div class="table-wrap">
@@ -128,14 +123,30 @@
     </section>
   </div>
 
+  <div id="rulesModal" class="modal-mask" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>玩法规则</h2>
+        <button id="btnRulesClose" class="btn small ghost">关闭</button>
+      </div>
+      <ul class="modal-list">
+        <li>流程：<b>抢庄 → 定庄 → 下注 → 亮牌 → 结算</b>；满 2 人准备后自动开局</li>
+        <li>牌型倍数：五小牛×6 · 五花牛×5 · 牛牛/四炸×4 · 牛九×3 · 牛七/牛八×2 · 其余×1</li>
+        <li>结算：<b>闲家下注倍数 × 胜方牌型倍数</b>，庄家通吃通赔</li>
+        <li>牌面：每人只看自己的 5 张牌，全部亮牌后才公开</li>
+        <li>关房：房间创建后 10 分钟内无人开局会自动关闭</li>
+      </ul>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 
-  <script src="js/evaluator.js?v=20261026f"></script>
-  <script src="js/game.js?v=20261026f"></script>
-  <script src="js/peerjs.min.js?v=20261026f"></script>
-  <script src="js/peer.js?v=20261026f"></script>
-  <script src="js/net.js?v=20261026f"></script>
-  <script src="js/sound.js?v=20261026f"></script>
-  <script src="js/app.js?v=20261026f"></script>
+  <script src="js/evaluator.js?v=20261026g"></script>
+  <script src="js/game.js?v=20261026g"></script>
+  <script src="js/peerjs.min.js?v=20261026g"></script>
+  <script src="js/peer.js?v=20261026g"></script>
+  <script src="js/net.js?v=20261026g"></script>
+  <script src="js/sound.js?v=20261026g"></script>
+  <script src="js/app.js?v=20261026g"></script>
 </body>
 </html>
