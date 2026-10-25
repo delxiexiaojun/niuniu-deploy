@@ -41,7 +41,7 @@
    * 返回 { niu, type, label, mult, maxCard, bombValue? }：
    *   niu 0=无牛，1~9=牛一~牛九，10=牛牛（特殊牌型 niu 一律记 10）
    *   type: 'none'|'niu'|'bomb'|'flowers'|'small'（五小牛>五花牛>四炸>牛牛>…>无牛）
-   *   mult 牌型倍数：无牛~牛七×1，牛八/牛九×2，牛牛×3，四炸×4，五花牛×5，五小牛×6
+   *   mult 牌型倍数：无牛~牛七×1，牛八/牛九×2，牛牛×4，四炸×4，五花牛×5，五小牛×6
    * 纯函数：不修改入参，不依赖外部状态。
    */
   function evaluateHand(cards) {
@@ -88,7 +88,7 @@
       niu,
       type: niu > 0 ? 'niu' : 'none',
       label: niu === 0 ? '无牛' : niu === 10 ? '牛牛' : '牛' + CN_NUM[niu],
-      mult: niu === 10 ? 3 : niu === 9 ? 3 : niu >= 7 ? 2 : 1,
+      mult: niu === 10 ? 4 : niu === 9 ? 3 : niu >= 7 ? 2 : 1,
       maxCard: top
     };
   }
