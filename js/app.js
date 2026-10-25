@@ -606,6 +606,7 @@
       }
       list.appendChild(item);
     }
+    bindMyAvatar();
   }
 
   /** 桌面上每个座位的一手牌：结算前别人是 5 张牌背、自己是 4 明 1 暗；结算后全亮 */
@@ -1037,9 +1038,12 @@
   }
 
   /* ---------------- 语音留言 ---------------- */
-  // 点一下开始录音，再点一下结束并发送；单条最长 8 秒，8kbps 级压缩后体积很小
+  // 按住自己的头像说话、松开发送；短按一下进入连续录音，再点一次结束（最长 8 秒）
   const VOICE_MAX_MS = 8000;
-  const voice = { rec: null, chunks: [], stream: null, timer: null, startedAt: 0 };
+  const voice = {
+    rec: null, chunks: [], stream: null, timer: null, startedAt: 0,
+    pressAt: 0, holdActive: false, toggle: false
+  };
 
   function voiceMime() {
     if (typeof MediaRecorder === 'undefined') return null;
@@ -1050,9 +1054,43 @@
     return '';
   }
 
+  /** 自己的头像：点击/按住即可录音 */
+  function myAvatarEl() {
+    return document.querySelector('#seatList .seat.me .seat-avatar');
+  }
+
   function resetMicBtn() {
-    const btn = $('btnMic');
-    if (btn) { btn.textContent = '🎤'; btn.classList.remove('rec'); }
+    voice.toggle = false;
+    const av = myAvatarEl();
+    if (av) av.classList.remove('rec');
+  }
+
+  /** 每次渲染座位后重新绑定（innerHTML 会重建元素） */
+  function bindMyAvatar() {
+    const av = myAvatarEl();
+    if (!av) return;
+    av.title = '按住说话，松开发送';
+    if (voice.rec && voice.rec.state === 'recording') av.classList.add('rec');
+    av.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      voice.pressAt = Date.now();
+      voice.holdActive = true;
+      voice.toggle = false;
+      if (voice.rec && voice.rec.state === 'recording') { stopVoice(); return; }
+      toggleVoice();
+    });
+    const release = () => {
+      if (!voice.holdActive) return;
+      voice.holdActive = false;
+      const held = Date.now() - voice.pressAt;
+      // 短按当作点击：保持录音，等下一次点击再结束
+      if (held < 250) { voice.toggle = true; return; }
+      if (voice.rec && voice.rec.state === 'recording') stopVoice();
+    };
+    av.addEventListener('pointerup', release);
+    av.addEventListener('pointercancel', release);
+    av.addEventListener('pointerleave', release);
+    av.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   /** 结束录音：停掉轨道并把音频以 base64 发给房主转发 */
@@ -1115,9 +1153,11 @@
       };
 
       rec.start();
-      const btn = $('btnMic');
-      if (btn) { btn.textContent = '⏹'; btn.classList.add('rec'); }
-      toast('正在录音，点一下结束并发送（最长 8 秒）', 'ok');
+      const av = myAvatarEl();
+      if (av) av.classList.add('rec');
+      toast('正在录音，松开发送（最长 8 秒）', 'ok');
+      // 麦克风授权较慢时用户可能已经松手：按住模式下立刻结束
+      if (!voice.holdActive && !voice.toggle) stopVoice();
       voice.timer = setTimeout(() => { try { stopVoice(); } catch (e) { /* 忽略 */ } }, VOICE_MAX_MS);
     }).catch((err) => {
       resetMicBtn();
@@ -1192,7 +1232,6 @@
     $('btnRestart').addEventListener('click', actRestart);
     $('btnLeave').addEventListener('click', leaveRoom);
     $('btnShare').addEventListener('click', copyShareLink);
-    $('btnMic').addEventListener('click', toggleVoice);
     $('btnRules').addEventListener('click', openRules);
     $('btnRulesClose').addEventListener('click', closeRules);
     $('rulesModal').addEventListener('click', (e) => {
