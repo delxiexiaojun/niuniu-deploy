@@ -1,0 +1,12 @@
+# Render 免费 Web Service：构建与启动命令即可，无需第三方依赖
+services:
+  - type: web
+    name: niuniu-server
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: node server/index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.21.1
