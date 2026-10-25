@@ -260,6 +260,18 @@
     });
   }
 
+  /** 把 PeerJS 的原始错误翻译成可判断原因的中文提示 */
+  function joinErrText(err) {
+    const type = err && err.type ? String(err.type) : '';
+    if (type === 'peer-unavailable') return '房间不存在或房主已离线（房主页面可能已关闭或切到后台）';
+    if (type === 'network' || type === 'server-error' || type === 'socket-error' || type === 'socket-closed') {
+      return '信令服务器连接失败（网络可能拦截了 PeerJS，请切换 Wi-Fi/流量后重试）';
+    }
+    if (type === 'browser-incompatible') return '当前浏览器不支持 P2P 直连，请换系统浏览器打开';
+    if (err && err.message) return err.message;
+    return '无法连接房主（未收到具体原因，可能是房主已离线）';
+  }
+
   function startGuest(msg) {
     net._role = 'guest';
     net._roomId = String(msg.roomId || '');
@@ -284,7 +296,7 @@
       net._pendingJoin = null;
       net._role = null;
       net.open = false;
-      emit({ t: 'error', message: (err && err.message) || '无法连接房主', reqId: pending && pending.reqId });
+      emit({ t: 'error', message: joinErrText(err), reqId: pending && pending.reqId });
     });
   }
 
@@ -303,7 +315,7 @@
           attachGuestConn(conn);
           if (net.onOpen) { try { net.onOpen(); } catch (e) { /* 忽略 */ } }
           resolve();
-        }).catch((err) => { reject(err); });
+        }).catch((err) => { reject(new Error(joinErrText(err))); });
       });
     }
     // 首次连接：角色由第一条 create / join 消息决定，直接放行
