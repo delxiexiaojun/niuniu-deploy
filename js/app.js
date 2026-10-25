@@ -474,13 +474,20 @@
     const meNow = view.seats[view.yourSeat];
     if (view.yourSeat !== null && meBefore && meNow && !meBefore.revealed && meNow.revealed) {
       sfxPlay('flip');
+      // 亮牌后若自己是牛牛及以上牌型（牛九/牛牛/五花牛/四炸/五小牛），紧接着炸一段
+      try {
+        if (Array.isArray(view.yourHand) && view.yourHand.length === 5 &&
+            Evaluator && typeof Evaluator.evaluateHand === 'function') {
+          const res = Evaluator.evaluateHand(view.yourHand);
+          if (res && res.mult >= 3) setTimeout(() => sfxPlay('boom'), 240);
+        }
+      } catch (e) { /* 音效失败不影响游戏 */ }
     }
     // 结算：逐个报牌型（showdown）+ 胜负音 + 自己的得失
     if (view.phase === 'settled' && prev.phase !== 'settled' &&
         view.result && Array.isArray(view.result.ranking)) {
       const mine = view.result.ranking.find((e) => e.seat === view.yourSeat);
-      // 牛牛及以上牌型（牛牛/五花牛/四炸/五小牛）先来一段炸裂登场音
-      if (mine && mine.handMult >= 3) sfxPlay('boom');
+      // 炸裂音已挪到「我亮牌」瞬间，这里不再重复播放
       sfxPlay(mine ? (mine.delta > 0 ? 'win' : mine.delta < 0 ? 'lose' : 'flip') : 'flip');
       // 只报自己的牌型和胜负，不报其他人
       if (mine) {
