@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>牛牛 · 纯前端 P2P 好友房</title>
-  <link rel="stylesheet" href="css/style.css?v=20261025y">
+  <title>牛牛 · 众神归位</title>
+  <link rel="stylesheet" href="css/style.css?v=20261026a">
 </head>
 <body>
   <div class="app">
     <header>
       <div class="brand">
-        <h1>牛牛 <span>P2P 好友房</span></h1>
-        <p class="sub">房主浏览器负责洗牌与结算 · 4 人 · 无真钱下注</p>
+        <h1>牛牛 <span>斗牛场</span></h1>
+        <p class="sub">服务器托管牌局 · 创建者退出不影响房间 · 无真钱下注</p>
       </div>
       <div id="netBadge" class="net-badge"></div>
     </header>
@@ -52,9 +52,9 @@
       <p id="lobbyMsg" class="msg"></p>
 
       <ul class="tips">
-        <li>房主是本局唯一权威：洗牌、发牌、牛牛判定、比牌结算都在房主浏览器完成。</li>
-        <li>每个玩家只会收到自己的 5 张牌，全部亮牌后才公开牌面。</li>
-        <li>刷新页面可用本地 token 回到原座位；房主刷新或关闭页面则房间结束。</li>
+        <li>房间由服务器托管：洗牌、发牌、牛牛判定、比牌结算都在服务端完成。</li>
+        <li>创建者退出或掉线只少一个玩家，房间继续；房间创建后 10 分钟内没人开局会自动关闭。</li>
+        <li>每个玩家只会收到自己的 5 张牌，全部亮牌后才公开牌面；掉线后可用本地 token 回原座位。</li>
       </ul>
     </section>
 
@@ -84,6 +84,14 @@
           <button id="btnShare" class="btn small">分享链接</button>
           <button id="btnLeave" class="btn small ghost">离开房间</button>
         </div>
+      </div>
+
+      <!-- 游戏规则：默认常驻显示；点「战绩记录」展开战绩时隐藏，关闭战绩后重新显示 -->
+      <div id="rulesBar" class="rules-bar">
+        <span class="rules-title">玩法</span>
+        <span>抢庄 → 定庄 → 下注 → 亮牌 → 结算；满 2 人准备后自动开局</span>
+        <span>牌型倍数：五小牛×6 · 五花牛×5 · 四炸×4 · 牛牛/牛九×3 · 牛七/牛八×2 · 其余×1</span>
+        <span>结算：闲家下注倍数 × 胜方牌型倍数，庄家通吃通赔；每人只看自己的牌</span>
       </div>
 
       <div class="table-wrap">
@@ -122,11 +130,10 @@
 
   <div id="toast" class="toast"></div>
 
-  <script src="js/peerjs.min.js"></script>
-  <script src="js/evaluator.js?v=20261025y"></script>
-  <script src="js/game.js?v=20261025y"></script>
-  <script src="js/peer.js?v=20261025y"></script>
-  <script src="js/sound.js?v=20261025y"></script>
-  <script src="js/app.js?v=20261025y"></script>
+  <script src="js/evaluator.js?v=20261026a"></script>
+  <script src="js/game.js?v=20261026a"></script>
+  <script src="js/net.js?v=20261026a"></script>
+  <script src="js/sound.js?v=20261026a"></script>
+  <script src="js/app.js?v=20261026a"></script>
 </body>
 </html>
