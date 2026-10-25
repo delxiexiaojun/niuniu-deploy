@@ -1,0 +1,14 @@
+{
+  "name": "niuniu-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "牛牛好友房服务器（房间托管 + WebSocket），零第三方依赖",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node test/run-tests.js && node test/rooms-tests.js && node test/server-tests.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
