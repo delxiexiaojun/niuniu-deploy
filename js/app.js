@@ -1,36 +1,52 @@
 /*
  * UI / 连接控制层。
- * - 房主：本地运行 HostEngine（权威逻辑），把每位玩家各自的 view 通过 PeerJS 发出去。
- * - 玩家：只发送 join / start / reveal，接收权威 state 并渲染，本地不做任何结算。
+ * 房间由服务器托管（server/index.js 内跑 HostEngine），所有浏览器都是同等玩家：
+ * 创建者退出 / 掉线只少一个玩家，房间不结束；只负责发操作、收权威 state 并渲染。
  */
 (function () {
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  const Transport = window.Transport;
-  const Engine = window.NiuNiuGame.HostEngine;
+  const Net = window.NiuNiuNet;
   const Evaluator = window.NiuNiuEvaluator;
   const SESSION_KEY = 'niuniu.session.v1';
+  const TAB_KEY = 'niuniu.tab.v1';
+  const ALIVE_PREFIX = 'niuniu.alive.';
+  const ALIVE_MS = 5000;
+  const ALIVE_STALE_MS = 15000;
+
+  function readTabId() {
+    try {
+      let id = sessionStorage.getItem(TAB_KEY);
+      if (!id) {
+        id = 't-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        sessionStorage.setItem(TAB_KEY, id);
+      }
+      return id;
+    } catch (e) {
+      return 't-fallback';
+    }
+  }
+
+  const TAB_ID = readTabId();
+  let aliveTimer = null;
 
   const app = {
-    mode: null,        // 'host' | 'guest'
-    engine: null,      // 仅房主有
-    peer: null,
-    conn: null,        // 仅玩家有
     seat: null,
     token: null,
     roomId: null,
     name: '',
     view: null,
     busy: false,
-    dead: false,
-    hostLeft: false,
+    dead: false,        // 与服务器断开（自动重连中）
+    closed: false,      // 房间已被服务器关闭
     countdownEnd: null,
     autoStartEnd: null,
+    closeEnd: null,
     phaseLeft: null,
+    closeLeft: null,
     joinTimer: null,
-    hostConns: new Map(),
-    connSeat: new WeakMap()
+    pending: new Map()  // reqId -> { expect, resolve, reject }
   };
 
   let toastTimer = null;
@@ -77,8 +93,30 @@
     return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
   }
 
-  function randomCode() {
-    return String(Math.floor(100000 + Math.random() * 900000));
+  function errText(err) {
+    if (!err) return '未知错误';
+    return err.message || String(err);
+  }
+
+  /** 发一条需要服务器回包的消息，按 reqId 匹配；超时/error 都转成 reject */
+  function request(msg, expectType, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const reqId = newReqId();
+      const timer = setTimeout(() => {
+        app.pending.delete(reqId);
+        reject(new Error('服务器响应超时'));
+      }, timeoutMs || 20000);
+      app.pending.set(reqId, {
+        expect: expectType,
+        resolve: (m) => { clearTimeout(timer); resolve(m); },
+        reject: (e) => { clearTimeout(timer); reject(e); }
+      });
+      if (!Net.send(Object.assign({}, msg, { reqId }))) {
+        app.pending.delete(reqId);
+        clearTimeout(timer);
+        reject(new Error('尚未连接到服务器'));
+      }
+    });
   }
 
   function clearJoinTimer() {
@@ -96,7 +134,7 @@
     if (sm) sm.textContent = text;
   }
 
-  /* ---------------- 房主侧 ---------------- */
+  /* ---------------- 创建 / 加入 ---------------- */
 
   async function createRoom() {
     if (app.busy) return;
@@ -105,140 +143,96 @@
     try { localStorage.setItem('nn_name', name); } catch (e) { /* ignore */ }
 
     app.busy = true;
-    $('lobbyMsg').textContent = '正在创建房间（连接免费云信令）…';
+    const msgEl = $('lobbyMsg');
+    msgEl.textContent = '正在连接服务器…';
     try {
-      let peer = null;
-      let code = '';
-      for (let attempt = 0; attempt < 3 && !peer; attempt++) {
-        code = randomCode();
-        try {
-          peer = await Transport.createPeer(Transport.roomPeerId(code));
-        } catch (err) {
-          if (err && err.type === 'unavailable-id') continue; // 房间号撞车，换一个
-          throw err;
-        }
-      }
-      if (!peer) throw new Error('房间号连续冲突，请重试');
-
-      const engine = new Engine(code, {
-        totalRounds: Number($('selRounds').value) || 12,
-        maxPlayers: Number($('selPlayers').value) || 4
-      });
-      app.engine = engine;
-      engine.onUpdate = broadcast;
-
-      const joined = engine.join(name, null);
-      if (!joined.ok) throw new Error(joined.error);
-
-      app.mode = 'host';
-      app.peer = peer;
-      app.roomId = code;
-      app.seat = joined.seat;
-      app.token = joined.token;
-      app.name = name;
-      app.dead = false;
-      app.hostLeft = false;
-      app.view = null;
-
-      peer.on('connection', onGuestConnection);
-      peer.on('disconnected', () => {
-        toast('与信令服务器断开，正在重连…', 'warn');
-        try { peer.reconnect(); } catch (e) { /* 忽略 */ }
-      });
-      peer.on('error', (err) => {
-        if (err && (err.type === 'network' || err.type === 'server-error')) {
-          toast('信令异常：' + err.type, 'warn');
-        }
-      });
-
-      $('lobbyMsg').textContent = '';
-      enterRoom();
-      render(engine.view(app.seat));
-      toast('房间已创建：' + code + '，把房间号发给朋友', 'ok');
+      await Net.connect();
+      msgEl.textContent = '正在创建房间…';
+      const created = await request({
+        t: 'create',
+        name: name,
+        rounds: Number($('selRounds').value) || 12,
+        players: Number($('selPlayers').value) || 4
+      }, 'created');
+      applyEnter(created.roomId, created.seat, created.token, name);
+      toast('房间已创建：' + created.roomId + '，把链接发给朋友', 'ok');
     } catch (err) {
       console.error(err);
-      $('lobbyMsg').textContent = '';
-      toast('创建失败：' + (err && (err.message || err.type) ? (err.message || err.type) : err), 'error');
+      toast('创建失败：' + errText(err), 'error');
     } finally {
       app.busy = false;
+      msgEl.textContent = '';
     }
   }
 
-  function onGuestConnection(conn) {
-    conn.on('data', (raw) => onHostData(conn, raw));
-    conn.on('close', () => {
-      const seat = app.connSeat.get(conn);
-      if (seat === undefined || !app.engine) return;
-      if (app.hostConns.get(seat) !== conn) return; // 已被新连接取代
-      app.hostConns.delete(seat);
-      app.engine.markConnected(seat, false);
-      broadcast(); // 立刻通知全桌谁掉线了，不必等下一个动作
-    });
-    conn.on('error', () => { /* close 会接着触发 */ });
+  /** 收到 created / joined 后统一落地：记座位、存会话、切到房间界面 */
+  function applyEnter(roomId, seat, token, name) {
+    app.roomId = roomId;
+    app.seat = seat;
+    app.token = token;
+    if (name) app.name = name;
+    app.dead = false;
+    app.closed = false;
+    app.view = null;
+    clearJoinTimer();
+    saveSession();
+    startAlive();
+    enterRoom();
   }
 
-  function onHostData(conn, raw) {
-    if (!raw || typeof raw !== 'object' || !app.engine) return;
+  /* ---------------- 服务器消息 ---------------- */
 
-    if (raw.t === 'join') {
-      const result = app.engine.join(raw.name, raw.token);
-      if (!result.ok) {
-        Transport.send(conn, { t: 'error', message: result.error });
-        setTimeout(() => { try { conn.close(); } catch (e) { /* 忽略 */ } }, 200);
+  function onServerMessage(raw) {
+    if (!raw || typeof raw !== 'object') return;
+
+    // 请求回包：按 reqId 精确配对
+    if (raw.reqId && app.pending.has(raw.reqId)) {
+      const pending = app.pending.get(raw.reqId);
+      if (raw.t === 'error') {
+        app.pending.delete(raw.reqId);
+        pending.reject(new Error(raw.message || '服务器返回错误'));
         return;
       }
-      const previous = app.hostConns.get(result.seat);
-      // 先换绑再关旧连接：previous.close() 的 close 事件可能同步触发，
-      // 若换绑在后，守卫会误判旧连接仍有效而把座位标成掉线
-      app.hostConns.set(result.seat, conn);
-      app.connSeat.set(conn, result.seat);
-      if (previous && previous !== conn && previous.open) {
-        try { previous.close(); } catch (e) { /* 忽略 */ }
+      if (raw.t === pending.expect) {
+        app.pending.delete(raw.reqId);
+        pending.resolve(raw);
+        return;
       }
-      Transport.send(conn, { t: 'joined', seat: result.seat, token: result.token, roomId: app.roomId });
-      Transport.send(conn, { t: 'state', view: app.engine.view(result.seat) });
-      broadcast();
+    }
+
+    if (raw.t === 'created') return; // 由 createRoom 的 request 处理
+
+    if (raw.t === 'joined') {
+      // 断线后自动回座（没有 pending 请求）
+      applyEnter(raw.roomId || app.roomId, raw.seat, raw.token, app.name);
+      toast('已重新连接房间 ' + app.roomId, 'ok');
       return;
     }
 
-    const seat = app.connSeat.get(conn);
-    if (seat === undefined) return;
-
-    if (raw.t === 'start' || raw.t === 'reveal' || raw.t === 'rob' || raw.t === 'ready' || raw.t === 'bet' || raw.t === 'restart') {
-      const result = raw.t === 'start'
-        ? app.engine.start(seat, raw.reqId)
-        : raw.t === 'rob'
-          ? app.engine.rob(seat, raw.want, raw.reqId)
-          : raw.t === 'ready'
-            ? app.engine.ready(seat, raw.reqId)
-            : raw.t === 'bet'
-              ? app.engine.bet(seat, raw.mult, raw.reqId)
-              : raw.t === 'restart'
-                ? app.engine.restart(seat, raw.reqId)
-                : app.engine.reveal(seat, raw.mult, raw.reqId);
-      if (!result.ok && !result.ignored && result.error) {
-        Transport.send(conn, { t: 'error', message: result.error });
+    if (raw.t === 'state') {
+      if (!app.view) {
+        clearJoinTimer();
+        enterRoom();
       }
+      app.dead = false;
+      render(raw.view);
+      return;
+    }
+
+    if (raw.t === 'room-closed') {
+      const why = raw.reason === 'nobody-started' ? '10 分钟内无人开局，房间已自动关闭' : '房间已关闭';
+      resetToLobby(true);
+      toast(why, 'warn');
+      return;
+    }
+
+    if (raw.t === 'error') {
+      toast(raw.message || '服务器返回错误', 'error');
+      if (!app.roomId) resetToLobby(false);
     }
   }
 
-  /** 把每位玩家自己的可见状态推给他；房主自己也重新渲染 */
-  function broadcast() {
-    if (!app.engine) return;
-    app.hostConns.forEach((conn, seat) => {
-      Transport.send(conn, { t: 'state', view: app.engine.view(seat) });
-    });
-    if (app.mode === 'host') render(app.engine.view(app.seat));
-  }
-
-  function hostBye() {
-    if (!app.engine) return;
-    app.hostConns.forEach((conn) => {
-      Transport.send(conn, { t: 'host-left' });
-    });
-  }
-
-  /* ---------------- 玩家侧 ---------------- */
+  /* ---------------- 重连 / 会话 ---------------- */
 
   async function joinRoom(codeInput, nameInput, token) {
     if (app.busy) return;
@@ -249,51 +243,18 @@
     try { localStorage.setItem('nn_name', name); } catch (e) { /* ignore */ }
 
     app.busy = true;
-    setJoinStatus('正在连接房主…');
-    let peer = null;
+    setJoinStatus('正在连接服务器…');
     try {
-      peer = await Transport.createPeer();
-      const conn = await Transport.connectToHost(peer, code);
-
-      app.mode = 'guest';
-      app.peer = peer;
-      app.conn = conn;
-      app.roomId = code;
-      app.name = name;
-      app.token = token || null;
-      app.dead = false;
-      app.hostLeft = false;
-      app.view = null;
-
-      conn.on('data', onGuestData);
-      conn.on('close', onHostGone);
-      conn.on('error', () => { /* close 会接着触发 */ });
-
-      peer.on('error', (err) => {
-        if (err && (err.type === 'network' || err.type === 'server-error')) {
-          toast('信令异常：' + err.type, 'warn');
-        }
-      });
-
-      Transport.send(conn, { t: 'join', name, token: token || null });
-      setJoinStatus('已连接，等待房主确认座位…');
-
-      clearJoinTimer();
-      app.joinTimer = setTimeout(() => {
-        if (app.mode !== 'guest' || app.view) return;
-        toast('房主未响应，连接超时', 'error');
-        resetToLobby(false);
-      }, 12000);
+      await Net.connect();
+      setJoinStatus('已连接，正在进入房间…');
+      const joined = await request({ t: 'join', roomId: code, name: name, token: token || null }, 'joined');
+      applyEnter(joined.roomId || code, joined.seat, joined.token, name);
+      setJoinStatus('');
+      toast(joined.restored ? '已回到原座位' : '已加入房间 ' + app.roomId, 'ok');
     } catch (err) {
       console.error(err);
-      setJoinStatus('');
-      const detail = err && err.type ? (err.type + (err.message ? '：' + err.message : ''))
-        : (err && err.message ? err.message : String(err));
-      toast('加入失败：' + detail, 'error');
-      if (peer) { try { peer.destroy(); } catch (e) { /* 忽略 */ } }
-      app.peer = null;
-      app.conn = null;
-      app.mode = null;
+      resetToLobby(false);
+      toast('加入失败：' + errText(err), 'error');
     } finally {
       app.busy = false;
       const sj = $('btnShareJoin');
@@ -301,75 +262,80 @@
     }
   }
 
-  function onGuestData(raw) {
-    if (!raw || typeof raw !== 'object') return;
-
-    if (raw.t === 'joined') {
-      clearJoinTimer();
-      app.seat = raw.seat;
-      app.token = raw.token;
-      if (raw.roomId) app.roomId = raw.roomId;
-      saveSession();
-      setJoinStatus('');
-      enterRoom();
-      toast('已加入房间 ' + app.roomId, 'ok');
-      return;
-    }
-
-    if (raw.t === 'state') {
-      if (!app.view) {
-        clearJoinTimer();
-        enterRoom();
-      }
-      render(raw.view);
-      return;
-    }
-
-    if (raw.t === 'host-left') {
-      clearJoinTimer();
-      app.dead = true;
-      app.hostLeft = true;
-      app.conn = null;
-      $('btnReconnect').hidden = true;
-      if (app.view) render(app.view);
-      else setStatus('房主已离开，房间结束', 'bad');
-      toast('房主已离开，房间结束', 'error');
-      return;
-    }
-
-    if (raw.t === 'error') {
-      toast(raw.message || '房主返回错误', 'error');
-      if (!app.view) {
-        clearJoinTimer();
-        resetToLobby(false);
-      }
-    }
-  }
-
-  function onHostGone() {
-    if (app.mode !== 'guest' || app.hostLeft) return;
-    app.conn = null;
+  function onNetClose() {
+    if (!app.roomId || app.closed) return;
     app.dead = true;
     if (app.view) render(app.view);
-    else setStatus('与房主连接中断', 'bad');
-    toast('与房主的连接已断开，可点击「重新连接」用 token 回到原座位', 'warn');
+    else setStatus('与服务器连接中断', 'bad');
+    toast('与服务器连接中断，正在自动重连…', 'warn');
+  }
+
+  function onNetOpen() {
+    // 自动重连成功：用本地 token 静默回原座
+    if (!app.roomId || !app.token || app.busy) return;
+    silentRejoin();
+  }
+
+  function silentRejoin() {
+    if (!app.roomId || !app.token || app.busy) return;
+    app.busy = true;
+    request({ t: 'join', roomId: app.roomId, name: app.name, token: app.token }, 'joined', 15000)
+      .then((joined) => {
+        applyEnter(joined.roomId || app.roomId, joined.seat, joined.token, app.name);
+        toast('已重新连接', 'ok');
+      })
+      .catch((err) => {
+        toast('自动重连失败：' + errText(err), 'error');
+      })
+      .finally(() => { app.busy = false; });
   }
 
   function reconnectGuest() {
-    const roomId = app.roomId;
-    const name = app.name;
-    const token = app.token;
-    if (!roomId || !token) { toast('没有可用的重连凭证，请重新加入房间', 'warn'); return; }
-    resetToLobby(false);
-    $('roomCode').value = roomId;
-    $('nickname').value = name;
-    joinRoom(roomId, name, token);
+    if (!app.roomId || !app.token) { toast('没有可用的重连凭证，请重新加入房间', 'warn'); return; }
+    if (app.busy) return;
+    app.busy = true;
+    Net.connect()
+      .then(() => { app.busy = false; silentRejoin(); })
+      .catch((err) => { app.busy = false; toast('连接服务器失败：' + errText(err), 'error'); });
   }
 
   /* ---------------- 闪烁 / 会话 ---------------- */
 
+  /** 本标签页存活心跳：同一浏览器多标签时，后来者不会把正在游戏的标签顶掉 */
+  function startAlive() {
+    if (aliveTimer) return;
+    const beat = () => {
+      if (!app.roomId) return;
+      try {
+        localStorage.setItem(ALIVE_PREFIX + TAB_ID, JSON.stringify({ roomId: app.roomId, at: Date.now() }));
+      } catch (e) { /* 忽略 */ }
+    };
+    beat();
+    aliveTimer = setInterval(beat, ALIVE_MS);
+  }
+
+  function stopAlive() {
+    if (aliveTimer) { clearInterval(aliveTimer); aliveTimer = null; }
+    try { localStorage.removeItem(ALIVE_PREFIX + TAB_ID); } catch (e) { /* 忽略 */ }
+  }
+
+  /** 同一浏览器里是否已有别的活跃标签页正在托管这个房间 */
+  function otherTabOwnsRoom(roomId) {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || key.indexOf(ALIVE_PREFIX) !== 0) continue;
+        if (key === ALIVE_PREFIX + TAB_ID) continue;
+        let info = null;
+        try { info = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { continue; }
+        if (info && info.roomId === roomId && Date.now() - info.at < ALIVE_STALE_MS) return true;
+      }
+    } catch (e) { /* 忽略 */ }
+    return false;
+  }
+
   function saveSession() {
-    if (app.mode !== 'guest' || !app.token) return;
+    if (!app.token) return;
     try {
       localStorage.setItem(SESSION_KEY, JSON.stringify({ roomId: app.roomId, name: app.name, token: app.token }));
     } catch (e) { /* 忽略无痕模式 */ }
@@ -410,11 +376,22 @@
     const left = Math.max(0, Math.ceil((app.autoStartEnd - Date.now()) / 1000));
     if (left === view.startingIn) return;
     view.startingIn = left;
-    if (left <= 0) app.autoStartEnd = null; // 归零后等房主推进阶段，服务端状态会覆盖显示
+    if (left <= 0) app.autoStartEnd = null; // 归零后等服务器推进阶段，服务端状态会覆盖显示
     if (view.phase === 'lobby' || view.phase === 'settled') updateStatus(view);
   }
 
-  setInterval(() => { tickCountdown(); tickAutoStart(); }, 500);
+  /** 房间自动关闭倒计时（仅创建后、尚未开局的 10 分钟），本地走秒 */
+  function tickCloseIn() {
+    const view = app.view;
+    if (!view || app.closeEnd == null) { app.closeLeft = null; return; }
+    const left = Math.max(0, Math.ceil((app.closeEnd - Date.now()) / 1000));
+    if (left === app.closeLeft) return;
+    app.closeLeft = left;
+    if (left <= 0) app.closeEnd = null;
+    if (view.phase === 'lobby') updateStatus(view);
+  }
+
+  setInterval(() => { tickCountdown(); tickAutoStart(); tickCloseIn(); }, 500);
 
   /* ---------------- 渲染 ---------------- */
 
@@ -530,8 +507,11 @@
     $('phaseInfo').textContent = phaseText[view.phase] || '';
     app.countdownEnd = view.secondsLeft != null ? Date.now() + view.secondsLeft * 1000 : null;
     app.autoStartEnd = view.startingIn != null ? Date.now() + view.startingIn * 1000 : null;
+    app.closeEnd = view.closeIn != null ? Date.now() + view.closeIn * 1000 : null;
+    if (view.closeIn == null) app.closeLeft = null;
     tickCountdown();
     tickAutoStart();
+    tickCloseIn();
 
     renderSeats(view);
     renderHistory(view);
@@ -574,7 +554,6 @@
         item.innerHTML = '<div class="seat-avatar empty-avatar"></div><div class="seat-label">空位</div>';
       } else {
         const badges = [];
-        if (player.seat === view.hostSeat) badges.push('<span class="mini-badge host">房</span>');
         if (view.bankerSeat === player.seat && view.phase !== 'lobby') {
           badges.push('<span class="mini-badge banker">庄</span>');
         }
@@ -796,9 +775,11 @@
     body.innerHTML = summaryHtml + roundsHtml;
   }
 
+  /** 战绩与规则互斥：展开战绩时隐藏规则条，收起战绩后规则条重新显示 */
   function toggleHistory() {
     const panel = $('historyPanel');
     panel.hidden = !panel.hidden;
+    $('rulesBar').hidden = !panel.hidden;
     if (!panel.hidden && app.view) {
       renderHistory(app.view);
       panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -870,20 +851,23 @@
         : '已亮牌 · 等待其他玩家';
     }
 
-    $('btnReconnect').hidden = !(app.dead && !app.hostLeft && app.mode === 'guest');
+    $('btnReconnect').hidden = !(app.dead && !app.closed && !!app.roomId);
   }
 
   function updateStatus(view) {
-    if (app.hostLeft) { setStatus('房主已离开，房间结束', 'bad'); return; }
-    if (app.dead) { setStatus('与房主的连接已断开', 'bad'); return; }
+    if (app.closed) { setStatus('房间已关闭', 'bad'); return; }
+    if (app.dead) { setStatus('与服务器连接中断，重连中…', 'bad'); return; }
 
     // 牌桌状态只保留流程关键信息：准备进度 / 倒计时，阶段名已在房间栏 phaseInfo 展示
     const seated = view.seats.filter(Boolean);
     if (view.phase === 'lobby' || view.phase === 'settled') {
       const readyCount = seated.filter((p) => p.ready).length;
+      const closing = !view.startingIn && app.closeLeft != null
+        ? ' · 房间 ' + app.closeLeft + 's 后关闭'
+        : '';
       setStatus(view.startingIn
         ? view.startingIn + ' 秒后' + (view.phase === 'lobby' ? '开局' : '开下一局')
-        : '准备 ' + readyCount + '/' + seated.length, '');
+        : '准备 ' + readyCount + '/' + seated.length + closing, '');
     } else if (view.phase === 'robbing' || view.phase === 'betting' || view.phase === 'revealing') {
       const label = view.phase === 'robbing' ? '抢庄' : view.phase === 'betting' ? '下注' : '亮牌';
       const players = seated.filter((p) => (view.roundSeats || []).indexOf(p.seat) !== -1);
@@ -906,33 +890,33 @@
     $('lobby').hidden = true;
     $('shareJoin').hidden = true;
     $('room').hidden = false;
-    $('netBadge').textContent = (app.mode === 'host' ? '房主 · 房间 ' : '玩家 · 房间 ') + app.roomId;
-    $('netBadge').className = 'net-badge ' + (app.mode === 'host' ? 'host' : 'guest');
+    $('netBadge').textContent = '房间 ' + app.roomId;
+    $('netBadge').className = 'net-badge guest';
+    // 每次进房回到默认视图：显示规则条，收起战绩
+    $('rulesBar').hidden = false;
+    $('historyPanel').hidden = true;
     // 地址栏带上 ?room=：微信里直接「···→发送给朋友」转发的链接就含房间号
     try { history.replaceState(null, '', location.pathname + '?room=' + app.roomId); } catch (e) { /* ignore */ }
   }
 
   function resetToLobby(clearSession) {
     clearJoinTimer();
-    if (app.mode === 'host') hostBye();
-    if (app.engine) app.engine.dispose(); // 停掉阶段定时器
-    try { if (app.conn) app.conn.close(); } catch (e) { /* 忽略 */ }
-    try { if (app.peer) app.peer.destroy(); } catch (e) { /* 忽略 */ }
+    app.pending.forEach((p) => { try { p.reject(new Error('已离开房间')); } catch (e) { /* 忽略 */ } });
+    app.pending.clear();
 
-    app.mode = null;
-    app.engine = null;
-    app.peer = null;
-    app.conn = null;
     app.seat = null;
     app.token = null;
     app.roomId = null;
     app.view = null;
     app.dead = false;
-    app.hostLeft = false;
+    app.closed = false;
     app.countdownEnd = null;
     app.autoStartEnd = null;
-    app.hostConns = new Map();
-    app.connSeat = new WeakMap();
+    app.closeEnd = null;
+    app.closeLeft = null;
+    app.phaseLeft = null;
+    stopAlive();
+    Net.close(); // 主动离开：不再自动重连
 
     if (clearSession) {
       try { localStorage.removeItem(SESSION_KEY); } catch (e) { /* 忽略 */ }
@@ -947,6 +931,7 @@
     setJoinStatus('');
     $('btnReconnect').hidden = true;
     $('historyPanel').hidden = true;
+    $('rulesBar').hidden = false;
     updateResumeButton();
   }
 
@@ -986,73 +971,59 @@
 
   /* ---------------- 操作 ---------------- */
 
+  /** 统一发操作：全部走服务器，权威结算在服务端 */
+  function sendAction(msg) {
+    if (!Net.send(Object.assign({}, msg, { reqId: newReqId() }))) {
+      toast('与服务器连接中断，正在重连…', 'warn');
+    }
+  }
+
   function actRob(want) {
     sfxUnlock();
     if (want) { sfxPlay('ding'); sfxVoice('rob'); }
     else { sfxPlay('click'); sfxVoice('norob'); }
-    if (app.mode === 'host') {
-      const result = app.engine.rob(app.seat, want, newReqId());
-      if (!result.ok && !result.ignored && result.error) toast(result.error, 'warn');
-    } else if (app.conn) {
-      Transport.send(app.conn, { t: 'rob', want, reqId: newReqId() });
-    }
+    sendAction({ t: 'rob', want: want });
   }
 
   function actBet(mult) {
     sfxUnlock();
     sfxPlay('click');
     sfxVoice('bet' + ([5, 8, 12].includes(mult) ? mult : 5));
-    if (app.mode === 'host') {
-      const result = app.engine.bet(app.seat, mult, newReqId());
-      if (!result.ok && !result.ignored && result.error) toast(result.error, 'warn');
-    } else if (app.conn) {
-      Transport.send(app.conn, { t: 'bet', mult, reqId: newReqId() });
-    }
+    sendAction({ t: 'bet', mult: mult });
   }
 
   function actReveal() {
     sfxUnlock();
     sfxPlay('flip');
     sfxVoice('show');
-    if (app.mode === 'host') {
-      const result = app.engine.reveal(app.seat, null, newReqId());
-      if (!result.ok && !result.ignored && result.error) toast(result.error, 'warn');
-    } else if (app.conn) {
-      Transport.send(app.conn, { t: 'reveal', reqId: newReqId() });
-    }
+    sendAction({ t: 'reveal' });
   }
 
   function actReady() {
-    if (app.mode === 'host') {
-      const result = app.engine.ready(app.seat, newReqId());
-      if (!result.ok && !result.ignored && result.error) toast(result.error, 'warn');
-    } else if (app.conn) {
-      Transport.send(app.conn, { t: 'ready', reqId: newReqId() });
-    }
+    sendAction({ t: 'ready' });
   }
 
   /** 整场打完后一键重开：比分清零回大厅，所有人还在房间里，重新准备即可 */
   function actRestart() {
-    if (app.mode === 'host') {
-      const result = app.engine.restart(app.seat, newReqId());
-      if (!result.ok && !result.ignored && result.error) toast(result.error, 'warn');
-    } else if (app.conn) {
-      Transport.send(app.conn, { t: 'restart', reqId: newReqId() });
-    }
+    sendAction({ t: 'restart' });
   }
 
   function leaveRoom() {
-    const wasHost = app.mode === 'host';
-    if (wasHost && !window.confirm('房主离开会结束整个房间，确定？')) return;
-    resetToLobby(true); // resetToLobby 内部会给房主广播 host-left
-    toast(wasHost ? '房间已结束' : '已离开房间', 'ok');
+    Net.send({ t: 'leave' }); // 只是少一个玩家，房间由服务器继续托管
+    resetToLobby(true);
+    toast('已离开房间', 'ok');
   }
 
   /* ---------------- 启动 ---------------- */
 
   document.addEventListener('DOMContentLoaded', () => {
-    if (typeof window.Peer !== 'function') {
-      toast('PeerJS 加载失败：请检查网络，或把 peerjs.min.js 下载到本地引用', 'error');
+    if (!window.NiuNiuNet) {
+      toast('连接模块加载失败：请刷新页面重试', 'error');
+    } else {
+      Net.onMessage = onServerMessage;
+      Net.onClose = onNetClose;
+      Net.onOpen = onNetOpen;
+      Net.onStatus = (text) => setJoinStatus(text);
     }
 
     updateResumeButton();
@@ -1093,10 +1064,12 @@
         $('shareJoin').hidden = false;
         $('shareRoomCode').textContent = shared;
         $('shareNick').focus();
-        // 本机存有该房间的重连凭证（异常退出/切出微信后重新点链接）时，自动以原身份回座，绕过昵称占位
+        // 本机存有该房间的重连凭证（异常退出/切出微信后重新点链接）时，自动以原身份回座，绕过昵称占位。
+        // 但若同一浏览器里已有别的活跃标签在玩这个房间（例如自己又点了一次分享链接），
+        // 就不再自动回座，否则两个标签会互相抢占同一个座位。
         try {
           const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
-          if (saved && saved.roomId === shared && saved.token && saved.name) {
+          if (saved && saved.roomId === shared && saved.token && saved.name && !otherTabOwnsRoom(shared)) {
             const sj = $('btnShareJoin');
             if (sj) { sj.disabled = true; sj.textContent = '连接中…'; }
             setJoinStatus('检测到「' + saved.name + '」的座位，正在自动回座…');
@@ -1140,21 +1113,16 @@
     });
 
     window.addEventListener('beforeunload', () => {
-      if (app.mode === 'host') hostBye();
+      // 直接断开即可：房间由服务器托管，创建者离开只少一个玩家
+      stopAlive();
+      Net.close();
     });
 
-    // 房主后台自愈：微信切回页面时立即检查过期阶段并推进
-    // （微信 WebView 后台会冻结定时器，靠 visibilitychange 回前台时补一次）
+    // 切回前台：连接被后台冻结断开时，用本地 token 自动回原座位
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState !== 'visible') return;
-      if (app.mode === 'host' && app.engine) {
-        try { app.engine._checkTimeout(); } catch (e) { /* 自愈失败不影响状态 */ }
-        broadcast();
-      }
-      // 玩家切回前台：连接已被后台冻结断开时，用本地 token 自动回原座位
-      if (app.mode === 'guest' && !app.hostLeft && !app.busy && app.token && (!app.conn || !app.conn.open)) {
-        reconnectGuest();
-      }
+      if (!app.roomId || !app.token || app.busy) return;
+      if (!Net.open) reconnectGuest();
     });
   });
 })();
