@@ -913,8 +913,8 @@
     $('room').hidden = false;
     $('netBadge').textContent = '房间 ' + app.roomId;
     $('netBadge').className = 'net-badge guest';
-    // 每次进房回到默认视图：显示规则条，收起战绩
-    $('rulesBar').hidden = false;
+    // 每次进房回到默认视图：收起规则弹框与战绩
+    $('rulesModal').hidden = true;
     $('historyPanel').hidden = true;
     // 地址栏带上 ?room=：微信里直接「···→发送给朋友」转发的链接就含房间号
     try { history.replaceState(null, '', location.pathname + '?room=' + app.roomId); } catch (e) { /* ignore */ }
@@ -953,7 +953,7 @@
     setJoinStatus('');
     $('btnReconnect').hidden = true;
     $('historyPanel').hidden = true;
-    $('rulesBar').hidden = false;
+    $('rulesModal').hidden = true;
     updateResumeButton();
   }
 
