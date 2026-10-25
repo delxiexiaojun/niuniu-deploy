@@ -540,9 +540,12 @@
       const player = view.seats[i];
       // 环绕牌桌椭圆分布；“我”固定在正下方（角度 90°），其余按座位号顺时针排开
       const angle = Math.PI / 2 + (i - me) * step;
-      // 半径收紧：底部座位（正下方）的头像+文字不能溢出桌底把页面撑出滚动条
-      const px = 50 + 40 * Math.cos(angle);
-      const py = 50 + 34 * Math.sin(angle);
+      // 半径铺开到贴着牌桌边缘：座位环绕整块牌桌周边，两侧不再留大片空白
+      const px = 50 + 46 * Math.cos(angle);
+      const py = 50 + 44 * Math.sin(angle);
+      // clamp 兜住边缘：小屏时座位/昵称不会被挤出可视区域（避免出现滚动条）
+      const seatX = 'clamp(38px, ' + px.toFixed(2) + '%, calc(100% - 38px))';
+      const seatY = 'clamp(44px, ' + py.toFixed(2) + '%, calc(100% - 44px))';
 
       // 牌直接摆在桌面上：座位内侧（半径 45% 处）的一手牌，尽量贴近牌桌中心
       if (player) {
@@ -556,8 +559,8 @@
 
       const item = document.createElement('li');
       item.className = 'seat' + (player ? '' : ' empty') + (player && player.seat === view.yourSeat ? ' me' : '');
-      item.style.left = px.toFixed(2) + '%';
-      item.style.top = py.toFixed(2) + '%';
+      item.style.left = seatX;
+      item.style.top = seatY;
 
       if (!player) {
         item.innerHTML = '<div class="seat-avatar empty-avatar"></div><div class="seat-label">空位</div>';
