@@ -544,12 +544,12 @@
       const px = 50 + 40 * Math.cos(angle);
       const py = 50 + 34 * Math.sin(angle);
 
-      // 牌直接摆在桌面上：座位内侧（半径 60% 处）的一手牌
+      // 牌直接摆在桌面上：座位内侧（半径 45% 处）的一手牌，尽量贴近牌桌中心
       if (player) {
         const hand = document.createElement('div');
         hand.className = 'table-hand' + (player.seat === view.yourSeat ? ' mine' : '');
-        hand.style.left = (50 + (px - 50) * 0.6).toFixed(2) + '%';
-        hand.style.top = (50 + (py - 50) * 0.6).toFixed(2) + '%';
+        hand.style.left = (50 + (px - 50) * 0.45).toFixed(2) + '%';
+        hand.style.top = (50 + (py - 50) * 0.45).toFixed(2) + '%';
         hand.innerHTML = tableHandHtml(view, i, player);
         if (hand.innerHTML) cardsLayer.appendChild(hand);
       }
