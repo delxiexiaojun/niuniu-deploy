@@ -8,6 +8,24 @@
   const ID_PREFIX = 'nnj-';
   const OPEN_TIMEOUT = 15000;
 
+  /*
+   * ICE 服务器：仅靠 STUN 时，运营商 CGNAT / 对称 NAT 的手机无法与房主打洞（表现为连接超时）。
+   * 带上 TURN 中继后，打洞失败会自动退回中继转发，保证这类网络也能进房。
+   */
+  const PEER_OPTIONS = {
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.miwifi.com' },
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+      ],
+      iceCandidatePoolSize: 2
+    }
+  };
+
   function roomPeerId(code) {
     return ID_PREFIX + String(code || '').replace(/\s/g, '');
   }
@@ -19,7 +37,7 @@
         reject(new Error('PeerJS 未加载，请检查网络后刷新'));
         return;
       }
-      const peer = id ? new root.Peer(id) : new root.Peer();
+      const peer = id ? new root.Peer(id, PEER_OPTIONS) : new root.Peer(null, PEER_OPTIONS);
       let settled = false;
       const timer = setTimeout(() => {
         if (settled) return;
@@ -60,7 +78,11 @@
           resolve(conn);
         }
       };
-      const timer = setTimeout(() => finish(new Error('与房主的 P2P 连接超时（可能是 NAT / 防火墙限制）')), OPEN_TIMEOUT);
+      const timer = setTimeout(() => {
+        const err = new Error('与房主的直连/中继都没打通（运营商网络可能限制了 P2P，请换 Wi-Fi 或用系统浏览器 Safari 打开重试）');
+        err.retry = true; // 换一个 peer 重新协商，常常能拿到可用的中继线路
+        finish(err);
+      }, OPEN_TIMEOUT);
       const onPeerError = (err) => {
         if (err && err.type === 'peer-unavailable') finish(new Error('房间不存在或房主已离线'));
       };
