@@ -256,7 +256,8 @@
     try {
       await Net.connect();
       setJoinStatus('已连接，正在进入房间…');
-      const joined = await request({ t: 'join', roomId: code, name: name, token: token || null }, 'joined');
+      // 超时留足 40s：连不上时 net 层会自动换中继重试一次（15s + 15s）
+      const joined = await request({ t: 'join', roomId: code, name: name, token: token || null }, 'joined', 40000);
       applyEnter(joined.roomId || code, joined.seat, joined.token, name);
       setJoinStatus('');
       toast(joined.restored ? '已回到原座位' : '已加入房间 ' + app.roomId, 'ok');
@@ -288,7 +289,7 @@
   function silentRejoin() {
     if (!app.roomId || !app.token || app.busy) return;
     app.busy = true;
-    request({ t: 'join', roomId: app.roomId, name: app.name, token: app.token }, 'joined', 15000)
+    request({ t: 'join', roomId: app.roomId, name: app.name, token: app.token }, 'joined', 40000)
       .then((joined) => {
         applyEnter(joined.roomId || app.roomId, joined.seat, joined.token, app.name);
         toast('已重新连接', 'ok');
