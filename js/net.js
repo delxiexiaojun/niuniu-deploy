@@ -291,11 +291,12 @@
     return '无法连接房主（未收到具体原因，可能是房主已离线）';
   }
 
-  function startGuest(msg) {
+  function startGuest(msg, attempt) {
+    const tryNo = attempt || 0;
     net._role = 'guest';
     net._roomId = String(msg.roomId || '');
     net._pendingJoin = msg;
-    status('正在连接房主…');
+    status(tryNo ? '直连没打通，正在换中继重试…' : '正在连接房主…');
 
     Transport.createPeer().then((peer) => {
       net._peer = peer;
@@ -312,10 +313,19 @@
       }
     }).catch((err) => {
       const pending = net._pendingJoin;
+      if (!pending) return;
+      // 打洞/中继都超时：销毁旧 peer 重新协商一次，换一组 ICE 候选再试
+      if (err && err.retry && tryNo < 1) {
+        try { if (net._peer) net._peer.destroy(); } catch (e) { /* 忽略 */ }
+        net._peer = null;
+        net._pendingJoin = null;
+        startGuest(pending, tryNo + 1);
+        return;
+      }
       net._pendingJoin = null;
       net._role = null;
       net.open = false;
-      emit({ t: 'error', message: joinErrText(err), reqId: pending && pending.reqId });
+      emit({ t: 'error', message: joinErrText(err), reqId: pending.reqId });
     });
   }
 
