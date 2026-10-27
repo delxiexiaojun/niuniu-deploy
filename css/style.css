@@ -222,6 +222,8 @@ input:focus {
 
 /* 房间号后的「玩法」按钮：规则改成弹框展示，牌桌不再被规则条占用 */
 .rules-btn { margin-left: 8px; padding: 4px 10px; font-size: 11.5px; }
+/* 房间栏按钮的「图标 + 文字」结构：手机端只留图标，省一行高度 */
+.btn-txt { margin-left: 4px; }
 
 .modal-mask {
   position: fixed;
@@ -293,7 +295,7 @@ input:focus {
 .table-status {
   position: absolute;
   left: 50%;
-  top: calc(50% + 56px);
+  top: calc(50% - 46px);
   transform: translate(-50%, -50%);
   z-index: 6;
   font-size: 13px;
@@ -304,6 +306,9 @@ input:focus {
   border-radius: 999px;
   padding: 5px 14px;
   white-space: nowrap;
+  max-width: min(88%, 320px);
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
@@ -331,7 +336,7 @@ input:focus {
 }
 .seat-grid {
   position: relative;
-  height: 380px;
+  height: 100%;
   margin: 0;
 }
 /* 座位：小头像 + 昵称 + 积分/状态，环绕牌桌分布，节省纵向空间 */
@@ -647,26 +652,40 @@ input:focus {
   z-index: 50;
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* 房内提示统一从顶部弹出，避免压住自己的手牌和座位 */
+body:has(#room:not([hidden])) .toast { bottom: auto; top: 72px; transform: translate(-50%, -14px); }
+body:has(#room:not([hidden])) .toast.show { transform: translate(-50%, 0); }
 .toast.ok { border-color: rgba(47, 191, 143, 0.55); }
 .toast.warn { border-color: rgba(240, 194, 77, 0.6); }
 .toast.error { border-color: rgba(224, 96, 92, 0.65); color: #ffd6d3; }
 
 @media (max-width: 720px) {
-  .seat { width: 60px; }
-  .seat-avatar { width: 36px; height: 36px; font-size: 14px; }
-  .mini-card { width: 34px; height: 48px; border-radius: 5px; }
-  .mini-card b:first-of-type { font-size: 13px; }
-  .mini-card b:last-of-type { font-size: 11px; }
-  .table-hand { gap: 3px; }
-  .table-hand .mini-card + .mini-card { margin-left: -13px; }
+  .seat { width: 58px; }
+  .seat-avatar { width: 34px; height: 34px; font-size: 13px; }
+  .mini-card { width: 30px; height: 43px; border-radius: 5px; }
+  .mini-card b:first-of-type { font-size: 12.5px; }
+  .mini-card b:last-of-type { font-size: 10.5px; }
+  .table-hand { gap: 2px; }
+  .table-hand .mini-card + .mini-card { margin-left: -15px; }
   .table-hand.mine .mini-card { width: 46px; height: 64px; }
   .table-hand.mine .mini-card + .mini-card { margin-left: -21px; }
   .table-hand.mine .mini-card b:first-of-type { font-size: 15.5px; }
   .table-hand.mine .mini-card b:last-of-type { font-size: 12.5px; }
   .table-felt { inset: 0; border-radius: 18px; }
-  .seat-label { font-size: 10.5px; max-width: 60px; }
+  .seat-label { font-size: 10px; max-width: 52px; }
   .seat-score { font-size: 12.5px; }
   .score-float { font-size: 16px; }
   .brand h1 { font-size: 21px; }
-  .room-bar { align-items: flex-start; }
+  /* 房间栏压成一行：房间号 + 玩法 + 图标按钮，把高度全部让给牌桌 */
+  .room-bar { padding: 7px 9px; gap: 8px; flex-wrap: nowrap; align-items: center; }
+  .room-code { font-size: 11.5px; }
+  .room-code strong { font-size: 16px; letter-spacing: 1px; }
+  .rules-btn { margin-left: 4px; padding: 3px 8px; font-size: 11px; }
+  .phase-info { display: none; }
+  .room-actions { gap: 5px; }
+  .room-actions .btn { padding: 5px 7px; font-size: 13px; line-height: 1; }
+  .room-actions .btn-txt { display: none; }
+  /* 空位只留虚线圆，不显示「空位」文字，避免牌桌上出现无意义标签 */
+  .seat.empty .seat-label { display: none; }
+  .table-status { top: calc(50% - 40px); font-size: 12px; padding: 4px 10px; }
 }
