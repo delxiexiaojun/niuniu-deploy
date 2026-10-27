@@ -552,34 +552,40 @@
       const seatX = 'clamp(' + edgeL + 'px, ' + px.toFixed(2) + '%, calc(100% - ' + edgeL + 'px))';
       const seatY = 'clamp(' + edgeT + 'px, ' + py.toFixed(2) + '%, calc(100% - ' + edgeB + 'px))';
 
-      // 牌摆在每个座位正前方（沿「座位→桌心」方向内推一段固定距离），
-      // 这样上方/下方玩家的牌不会离座位太远，也压不到头像和昵称
+      // 牌摆在每个座位正前方：上下座位沿「座位→桌心」内推；
+      // 左右两侧座位把整手牌转 90°（竖排一列）贴着侧边放，不再横着挤占牌桌
       if (player) {
         const wrap = cardsLayer.parentElement;
         const W = wrap.clientWidth || 0;
         const H = wrap.clientHeight || 0;
         let leftPct;
         let topPct;
+        let sideClass = '';
         if (W > 40 && H > 40) {
           const sx = Math.min(Math.max(px / 100 * W, edgeL), W - edgeL);
           const sy = Math.min(Math.max(py / 100 * H, edgeT), H - edgeB);
           const vx = W / 2 - sx;
           const vy = H / 2 - sy;
           const len = Math.sqrt(vx * vx + vy * vy) || 1;
-          const inset = narrow ? (player.seat === view.yourSeat ? 108 : 94) : (player.seat === view.yourSeat ? 132 : 116);
-          let hx = sx + vx / len * inset;
-          let hy = sy + vy / len * inset;
-          // 左右两侧的牌整体下移到桌面下半区，把正中那一带的「抢庄/下注/亮牌」按钮区让出来
-          if (Math.abs(vx) > Math.abs(vy) * 1.8) hy = H * (narrow ? 0.63 : 0.6);
-          leftPct = hx / W * 100;
-          topPct = hy / H * 100;
+          if (Math.abs(vx) > Math.abs(vy) * 1.8) {
+            // 侧边座位：竖排牌列，横向只占一张牌的宽度
+            const out = narrow ? 96 : 116;
+            leftPct = (sx + (vx > 0 ? out : -out)) / W * 100;
+            topPct = 60;                                  // 落到桌面下半区，让开中央按钮
+            sideClass = vx > 0 ? ' rot-r' : ' rot-l';
+          } else {
+            const inset = narrow ? (player.seat === view.yourSeat ? 108 : 94) : (player.seat === view.yourSeat ? 132 : 116);
+            leftPct = (sx + vx / len * inset) / W * 100;
+            topPct = (sy + vy / len * inset) / H * 100;
+            sideClass = '';
+          }
         } else {
           // 布局尺寸还没算出来时先按百分比摆，下一次渲染会纠正
           leftPct = 50 + (px - 50) * 0.45;
           topPct = 50 + (py - 50) * 0.45;
         }
         const hand = document.createElement('div');
-        hand.className = 'table-hand' + (player.seat === view.yourSeat ? ' mine' : '');
+        hand.className = 'table-hand' + (player.seat === view.yourSeat ? ' mine' : '') + sideClass;
         hand.style.left = leftPct.toFixed(2) + '%';
         hand.style.top = topPct.toFixed(2) + '%';
         hand.innerHTML = tableHandHtml(view, i, player);
