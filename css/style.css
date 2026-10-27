@@ -274,6 +274,14 @@ input:focus {
 }
 .modal-list b { color: var(--text); font-weight: 600; }
 
+/* 弹框底部的构建版本：手机端缓存没刷新时，用它确认当前加载的是哪一版 */
+.build-tag {
+  margin-top: 10px;
+  text-align: right;
+  font-size: 11px;
+  color: rgba(157, 194, 181, 0.65);
+}
+
 /* 录音中的麦克风按钮 */
 .btn.rec {
   color: #ffd0cd;
