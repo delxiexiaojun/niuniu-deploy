@@ -692,5 +692,7 @@ body:has(#room:not([hidden])) .toast.show { transform: translate(-50%, 0); }
   .room-actions .btn-txt { display: none; }
   /* 空位只留虚线圆，不显示「空位」文字，避免牌桌上出现无意义标签 */
   .seat.empty .seat-label { display: none; }
-  .table-status { top: calc(50% - 40px); font-size: 12px; padding: 4px 10px; }
+  /* 中央操作区下移一档：左右两侧玩家「竖排牌列」就在自己座位正前方，不再和按钮重叠 */
+  .table-ready-btn, .table-rob-wrap, .table-reveal-wrap, .table-center-info { top: 59%; }
+  .table-status { top: calc(50% - 58px); font-size: 12px; padding: 4px 10px; }
 }
