@@ -1249,6 +1249,14 @@
 
     updateResumeButton();
 
+    // 玩法弹框里显示当前构建版本：手机端缓存顽固时，用它确认有没有加载到新代码
+    try {
+      const tag = document.querySelector('script[src*="app.js"]');
+      const ver = tag && tag.src.match(/v=([0-9A-Za-z]+)/);
+      const verEl = $('buildTag');
+      if (verEl) verEl.textContent = ver ? ver[1] : 'dev';
+    } catch (e) { /* 忽略 */ }
+
     // 记住昵称：创建/加入时存 localStorage，分享链接再来时免输入直接进房
     try {
       const savedName = localStorage.getItem('nn_name');
