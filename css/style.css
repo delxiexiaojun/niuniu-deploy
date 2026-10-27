@@ -458,6 +458,11 @@ input:focus {
   justify-content: center;
   align-items: center;
 }
+/* 左右两侧玩家的手牌：整手转 90° 竖着排成一列，
+   横向只占一张牌的宽度，牌面朝向各自玩家，不再横着挤占牌桌中央 */
+.table-hand.rot-l { transform: translate(-50%, -50%) rotate(-90deg); }
+.table-hand.rot-r { transform: translate(-50%, -50%) rotate(90deg); }
+
 /* 角标式牌面 + 扇形叠牌：点数/花色堆左上角，后一张压住前一张右缘，
    整手牌横向宽度缩掉一半以上，牌本身可以保持大尺寸 */
 .mini-card {
