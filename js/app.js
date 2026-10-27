@@ -568,10 +568,10 @@
           const vy = H / 2 - sy;
           const len = Math.sqrt(vx * vx + vy * vy) || 1;
           if (Math.abs(vx) > Math.abs(vy) * 1.8) {
-            // 侧边座位：竖排牌列，横向只占一张牌的宽度
-            const out = narrow ? 96 : 116;
+            // 侧边座位：竖排牌列贴在自己座位正前方，横向只占一张牌的宽度
+            const out = narrow ? 72 : 96;
             leftPct = (sx + (vx > 0 ? out : -out)) / W * 100;
-            topPct = 60;                                  // 落到桌面下半区，让开中央按钮
+            topPct = sy / H * 100;
             sideClass = vx > 0 ? ' rot-r' : ' rot-l';
           } else {
             const inset = narrow ? (player.seat === view.yourSeat ? 108 : 94) : (player.seat === view.yourSeat ? 132 : 116);
