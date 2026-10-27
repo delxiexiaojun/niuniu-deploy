@@ -544,16 +544,44 @@
       // 半径铺开到贴着牌桌边缘：座位环绕整块牌桌周边，两侧不再留大片空白
       const px = 50 + 46 * Math.cos(angle);
       const py = 50 + 44 * Math.sin(angle);
-      // clamp 兜住边缘：小屏时座位/昵称不会被挤出可视区域（避免出现滚动条）
-      const seatX = 'clamp(38px, ' + px.toFixed(2) + '%, calc(100% - 38px))';
-      const seatY = 'clamp(44px, ' + py.toFixed(2) + '%, calc(100% - 44px))';
+      // clamp 兜住边缘：上/下留的安全距离不同（座位下方还有昵称/积分两行，底部要多留）
+      const narrow = window.innerWidth <= 720;
+      const edgeL = narrow ? 32 : 42;
+      const edgeT = narrow ? 34 : 44;
+      const edgeB = narrow ? 66 : 78;
+      const seatX = 'clamp(' + edgeL + 'px, ' + px.toFixed(2) + '%, calc(100% - ' + edgeL + 'px))';
+      const seatY = 'clamp(' + edgeT + 'px, ' + py.toFixed(2) + '%, calc(100% - ' + edgeB + 'px))';
 
-      // 牌直接摆在桌面上：座位内侧（半径 45% 处）的一手牌，尽量贴近牌桌中心
+      // 牌摆在每个座位正前方（沿「座位→桌心」方向内推一段固定距离），
+      // 这样上方/下方玩家的牌不会离座位太远，也压不到头像和昵称
       if (player) {
+        const wrap = cardsLayer.parentElement;
+        const W = wrap.clientWidth || 0;
+        const H = wrap.clientHeight || 0;
+        let leftPct;
+        let topPct;
+        if (W > 40 && H > 40) {
+          const sx = Math.min(Math.max(px / 100 * W, edgeL), W - edgeL);
+          const sy = Math.min(Math.max(py / 100 * H, edgeT), H - edgeB);
+          const vx = W / 2 - sx;
+          const vy = H / 2 - sy;
+          const len = Math.sqrt(vx * vx + vy * vy) || 1;
+          const inset = narrow ? (player.seat === view.yourSeat ? 108 : 94) : (player.seat === view.yourSeat ? 132 : 116);
+          let hx = sx + vx / len * inset;
+          let hy = sy + vy / len * inset;
+          // 左右两侧的牌整体下移到桌面下半区，把正中那一带的「抢庄/下注/亮牌」按钮区让出来
+          if (Math.abs(vx) > Math.abs(vy) * 1.8) hy = H * (narrow ? 0.63 : 0.6);
+          leftPct = hx / W * 100;
+          topPct = hy / H * 100;
+        } else {
+          // 布局尺寸还没算出来时先按百分比摆，下一次渲染会纠正
+          leftPct = 50 + (px - 50) * 0.45;
+          topPct = 50 + (py - 50) * 0.45;
+        }
         const hand = document.createElement('div');
         hand.className = 'table-hand' + (player.seat === view.yourSeat ? ' mine' : '');
-        hand.style.left = (50 + (px - 50) * 0.45).toFixed(2) + '%';
-        hand.style.top = (50 + (py - 50) * 0.45).toFixed(2) + '%';
+        hand.style.left = leftPct.toFixed(2) + '%';
+        hand.style.top = topPct.toFixed(2) + '%';
         hand.innerHTML = tableHandHtml(view, i, player);
         if (hand.innerHTML) cardsLayer.appendChild(hand);
       }
@@ -881,17 +909,23 @@
   }
 
   function updateStatus(view) {
+    // 手机端房间栏只留一行，局数/阶段信息并进牌桌中央的状态药丸
+    const narrow = (() => {
+      try { return window.matchMedia('(max-width: 720px)').matches; } catch (e) { return false; }
+    })();
+    const roundTag = narrow && view.round > 0 ? '第' + view.round + '/' + view.totalRounds + '局 · ' : '';
+    const show = (text, kind) => setStatus(roundTag + text, kind);
+
     if (app.closed) { setStatus('房间已关闭', 'bad'); return; }
     if (app.dead) { setStatus('与服务器连接中断，重连中…', 'bad'); return; }
 
-    // 牌桌状态只保留流程关键信息：准备进度 / 倒计时，阶段名已在房间栏 phaseInfo 展示
     const seated = view.seats.filter(Boolean);
     if (view.phase === 'lobby' || view.phase === 'settled') {
       const readyCount = seated.filter((p) => p.ready).length;
       const closing = !view.startingIn && app.closeLeft != null
         ? ' · 房间 ' + app.closeLeft + 's 后关闭'
         : '';
-      setStatus(view.startingIn
+      show(view.startingIn
         ? view.startingIn + ' 秒后' + (view.phase === 'lobby' ? '开局' : '开下一局')
         : '准备 ' + readyCount + '/' + seated.length + closing, '');
     } else if (view.phase === 'robbing' || view.phase === 'betting' || view.phase === 'revealing') {
@@ -903,7 +937,7 @@
           ? players.filter((p) => p.seat === view.bankerSeat || (p.bet !== null && p.bet !== undefined)).length
           : players.filter((p) => p.revealed).length;
       const left = app.phaseLeft;
-      setStatus(label + ' ' + done + '/' + players.length + (left != null ? ' · ' + left + 's' : ''),
+      show(label + ' ' + done + '/' + players.length + (left != null ? ' · ' + left + 's' : ''),
         left != null && left <= 5 ? 'urgent' : '');
     } else if (view.phase === 'finished') {
       setStatus('全部 ' + view.totalRounds + ' 局已打完', '');
