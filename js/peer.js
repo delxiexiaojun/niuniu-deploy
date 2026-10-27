@@ -9,22 +9,65 @@
   const OPEN_TIMEOUT = 15000;
 
   /*
-   * ICE 服务器：仅靠 STUN 时，运营商 CGNAT / 对称 NAT 的手机无法与房主打洞（表现为连接超时）。
-   * 带上 TURN 中继后，打洞失败会自动退回中继转发，保证这类网络也能进房。
+   * ICE 服务器：默认只走 STUN（和之前能连通的配置一致）。
+   * 免费公网 TURN（openrelay）在国内基本不可达，开着反而拖慢/拖死 ICE 收集，
+   * 所以默认关闭，只有链接带 ?turn=1 时才启用中继。
    */
-  const PEER_OPTIONS = {
-    config: {
-      iceServers: [
-        { urls: 'stun:stun.miwifi.com' },
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
-        { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-      ],
-      iceCandidatePoolSize: 2
+  const STUN_SERVERS = [
+    { urls: 'stun:stun.miwifi.com' },
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ];
+  const TURN_SERVERS = [
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
+  ];
+
+  function turnEnabled() {
+    try {
+      if (/[?&]turn=1/.test(root.location.search)) return true;
+      return root.localStorage && root.localStorage.getItem('nn_turn') === '1';
+    } catch (e) {
+      return false;
     }
-  };
+  }
+
+  function peerOptions() {
+    return { config: { iceServers: turnEnabled() ? STUN_SERVERS.concat(TURN_SERVERS) : STUN_SERVERS } };
+  }
+
+  /** 网络体检：收集本机 ICE 候选类型，用来判断是 STUN 被拦还是 NAT 打洞失败 */
+  function probeIce() {
+    return new Promise((resolve) => {
+      const out = { host: 0, srflx: 0, relay: 0, err: '' };
+      if (typeof root.RTCPeerConnection !== 'function') {
+        out.err = '浏览器不支持 WebRTC';
+        resolve(out);
+        return;
+      }
+      let pc = null;
+      try {
+        pc = new root.RTCPeerConnection(peerOptions());
+        pc.createDataChannel('probe');
+        pc.onicecandidate = (e) => {
+          const c = e && e.candidate ? e.candidate.candidate || '' : '';
+          if (!c) return;
+          if (/typ host/.test(c)) out.host += 1;
+          else if (/typ srflx/.test(c)) out.srflx += 1;
+          else if (/typ relay/.test(c)) out.relay += 1;
+        };
+        pc.createOffer().then((offer) => pc.setLocalDescription(offer)).catch((e) => {
+          out.err = (e && e.message) || String(e);
+        });
+      } catch (e) {
+        out.err = (e && e.message) || String(e);
+      }
+      setTimeout(() => {
+        try { if (pc) pc.close(); } catch (e) { /* 忽略 */ }
+        resolve(out);
+      }, 4000);
+    });
+  }
 
   function roomPeerId(code) {
     return ID_PREFIX + String(code || '').replace(/\s/g, '');
@@ -37,7 +80,8 @@
         reject(new Error('PeerJS 未加载，请检查网络后刷新'));
         return;
       }
-      const peer = id ? new root.Peer(id, PEER_OPTIONS) : new root.Peer(null, PEER_OPTIONS);
+      const opts = peerOptions();
+      const peer = id ? new root.Peer(id, opts) : new root.Peer(undefined, opts);
       let settled = false;
       const timer = setTimeout(() => {
         if (settled) return;
@@ -102,5 +146,5 @@
     }
   }
 
-  root.Transport = { roomPeerId, createPeer, connectToHost, send };
+  root.Transport = { roomPeerId, createPeer, connectToHost, send, probeIce };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
