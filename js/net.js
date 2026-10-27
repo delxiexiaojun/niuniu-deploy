@@ -325,7 +325,15 @@
       net._pendingJoin = null;
       net._role = null;
       net.open = false;
-      emit({ t: 'error', message: joinErrText(err), reqId: pending.reqId });
+      const reqId = pending.reqId;
+      // 最终失败时做一次网络体检，把候选情况写进提示，便于判断是网络拦截还是打洞失败
+      const finishErr = (extra) => emit({ t: 'error', message: joinErrText(err) + extra, reqId: reqId });
+      if (typeof Transport.probeIce !== 'function') { finishErr(''); return; }
+      Transport.probeIce().then((d) => {
+        const extra = '（网络体检：直连 ' + d.host + ' / 公网 ' + d.srflx + ' / 中继 ' + d.relay +
+          (d.err ? ' / ' + d.err : '') + '）';
+        finishErr(extra);
+      }).catch(() => finishErr(''));
     });
   }
 
