@@ -915,12 +915,8 @@
   }
 
   function updateStatus(view) {
-    // 手机端房间栏只留一行，局数/阶段信息并进牌桌中央的状态药丸
-    const narrow = (() => {
-      try { return window.matchMedia('(max-width: 720px)').matches; } catch (e) { return false; }
-    })();
-    const roundTag = narrow && view.round > 0 ? '第' + view.round + '/' + view.totalRounds + '局 · ' : '';
-    const show = (text, kind) => setStatus(roundTag + text, kind);
+    // 局数/阶段已单独显示在顶部第二行，这里只输出牌桌中央的阶段与倒计时
+    const show = (text, kind) => setStatus(text, kind);
 
     if (app.closed) { setStatus('房间已关闭', 'bad'); return; }
     if (app.dead) { setStatus('与服务器连接中断，重连中…', 'bad'); return; }
