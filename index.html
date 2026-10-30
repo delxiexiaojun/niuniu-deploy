@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <title>牛牛 · 众神归位</title>
-  <link rel="stylesheet" href="css/style.css?v=20261027d">
+  <link rel="stylesheet" href="css/style.css?v=20261030a">
 </head>
 <body>
   <div class="app">
@@ -74,20 +74,21 @@
     </section>
 
     <section id="room" hidden>
-      <div class="panel room-bar">
-        <div class="room-code">房间号 <strong id="roomId" class="copyable" title="点击复制房间号">------</strong>
-          <button id="btnRules" class="btn small ghost rules-btn" title="查看玩法规则">玩法</button>
+      <div class="room-top">
+        <div class="room-title">
+          <span class="room-name">牛牛 · 斗牛场</span>
+          <strong id="roomId" class="copyable room-num" title="点击复制房间号">------</strong>
         </div>
-        <div id="phaseInfo" class="phase-info"></div>
         <div class="room-actions">
+          <button id="btnRules" class="btn small ghost" title="查看玩法规则">玩法</button>
           <button id="btnHistory" class="btn small" title="战绩记录">📋<span class="btn-txt">战绩</span></button>
-          <button id="btnDownload" class="btn small gold" hidden>⬇<span class="btn-txt">下载战绩</span></button>
+          <button id="btnDownload" class="btn small gold" hidden>⬇<span class="btn-txt">下载</span></button>
           <button id="btnReconnect" class="btn small" hidden>⟳<span class="btn-txt">重连</span></button>
-          <button id="btnSound" class="btn small ghost" title="音效/语音开关">🔊</button>
           <button id="btnShare" class="btn small" title="分享链接">🔗<span class="btn-txt">分享</span></button>
-          <button id="btnLeave" class="btn small ghost" title="离开房间">✕<span class="btn-txt">离开</span></button>
+          <button id="btnLeave" class="btn small ghost" title="离开房间">✕</button>
         </div>
       </div>
+      <div class="round-line"><span id="phaseInfo" class="phase-info"></span></div>
 
       <div class="table-wrap">
         <div class="table-felt"></div>
@@ -111,6 +112,12 @@
           <button id="btnShow" class="btn gold rob-btn">亮牌</button>
         </span>
         <span id="revealedInfo" class="table-center-info" hidden></span>
+      </div>
+
+      <div class="table-bottom">
+        <button id="btnSound" class="bbtn" title="音效开关">🔊</button>
+        <span class="bottom-info">底分 <b>1</b> 分</span>
+        <span class="bbtn ghost-icon" title="按住自己的头像可发语音">🎤</span>
       </div>
 
       <div id="historyPanel" class="panel" hidden>
@@ -142,12 +149,12 @@
 
   <div id="toast" class="toast"></div>
 
-  <script src="js/evaluator.js?v=20261027d"></script>
-  <script src="js/game.js?v=20261027d"></script>
-  <script src="js/peerjs.min.js?v=20261027d"></script>
-  <script src="js/peer.js?v=20261027d"></script>
-  <script src="js/net.js?v=20261027d"></script>
-  <script src="js/sound.js?v=20261027d"></script>
-  <script src="js/app.js?v=20261027d"></script>
+  <script src="js/evaluator.js?v=20261030a"></script>
+  <script src="js/game.js?v=20261030a"></script>
+  <script src="js/peerjs.min.js?v=20261030a"></script>
+  <script src="js/peer.js?v=20261030a"></script>
+  <script src="js/net.js?v=20261030a"></script>
+  <script src="js/sound.js?v=20261030a"></script>
+  <script src="js/app.js?v=20261030a"></script>
 </body>
 </html>
