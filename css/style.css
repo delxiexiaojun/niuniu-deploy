@@ -52,6 +52,7 @@ body:has(#room:not([hidden])) #room { height: calc(100vh - 14px); }
 #room .table-wrap { flex: 1 1 auto; min-height: 200px; height: auto; margin-bottom: 0; }
 #room > .panel { flex: 0 0 auto; }
 #room .seat-grid { height: 100%; }
+#room > .room-top, #room > .round-line, #room > .table-bottom { flex: 0 0 auto; }
 
 header {
   display: flex;
@@ -200,30 +201,72 @@ input:focus {
 }
 .tips li::before { content: "· "; color: var(--gold); }
 
-/* 房间头部 */
-.room-bar {
+/* 房间头部：标题 + 房间号一行，右侧小圆角按钮；下一行居中显示局数/阶段 */
+.room-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 15px 18px;
+  gap: 10px;
+  padding: 2px 4px 4px;
 }
-.room-code { font-size: 13px; color: var(--muted); letter-spacing: 0.5px; }
-.room-code strong {
-  font-size: 20px;
+.room-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.room-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.room-num {
+  font-size: 15px;
   color: var(--gold);
-  letter-spacing: 2px;
-  margin-left: 4px;
+  letter-spacing: 1.5px;
   font-variant-numeric: tabular-nums;
 }
-.phase-info { font-size: 13px; color: var(--text); opacity: 0.86; }
-.room-actions { display: flex; gap: 8px; }
-
-/* 房间号后的「玩法」按钮：规则改成弹框展示，牌桌不再被规则条占用 */
-.rules-btn { margin-left: 8px; padding: 4px 10px; font-size: 11.5px; }
-/* 房间栏按钮的「图标 + 文字」结构：手机端只留图标，省一行高度 */
+.room-actions { display: flex; gap: 5px; flex: none; }
+.room-actions .btn { padding: 5px 9px; font-size: 12px; line-height: 1.1; }
 .btn-txt { margin-left: 4px; }
+
+/* 局数/阶段：单独一行居中，对应参考图顶部的「2/20 局」 */
+.round-line { text-align: center; padding-bottom: 2px; }
+.phase-info {
+  font-size: 12px;
+  color: var(--gold);
+  opacity: 0.9;
+  letter-spacing: 0.5px;
+}
+
+/* 底部操作栏：左音效、中底分、右语音提示 */
+.table-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 6px 2px;
+  flex: none;
+}
+.bbtn {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.bbtn:active { transform: translateY(1px); }
+.bbtn.ghost-icon { opacity: 0.75; cursor: default; font-size: 15px; }
+.bottom-info {
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.5px;
+}
+.bottom-info b { color: var(--gold); font-size: 15px; margin: 0 2px; }
 
 .modal-mask {
   position: fixed;
@@ -299,47 +342,50 @@ input:focus {
   font-variant-numeric: tabular-nums;
 }
 
-/* 牌桌流程状态：居中偏下的小药丸，只显示当前阶段与倒计时，不占页面高度 */
+/* 牌桌中央的流程文字：黄色大字直接压在毡面上（参考图的「等待摊牌」样式） */
 .table-status {
   position: absolute;
   left: 50%;
-  top: calc(50% - 46px);
+  top: calc(50% - 56px);
   transform: translate(-50%, -50%);
   z-index: 6;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--green);
-  background: rgba(8, 30, 25, 0.82);
-  border: 1px solid rgba(47, 191, 143, 0.45);
-  border-radius: 999px;
-  padding: 5px 14px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffdf7a;
+  background: none;
+  border: none;
+  padding: 0;
   white-space: nowrap;
-  max-width: min(88%, 320px);
+  max-width: 92%;
   overflow: hidden;
   text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.65);
   pointer-events: none;
 }
 .table-status.urgent {
-  color: #ffb3ae;
-  border-color: rgba(224, 96, 92, 0.6);
+  color: #ff9d97;
   animation: pulse 1s ease infinite;
 }
-.table-status.bad { color: #ffb3ae; border-color: rgba(224, 96, 92, 0.6); }
+.table-status.bad { color: #ff9d97; }
 
 /* 座位 */
 .table-wrap {
   position: relative;
   margin-bottom: 16px;
 }
-/* 牌桌：圆角矩形满铺整个可用区域（inset:0），四周不再留白 */
+/* 牌桌：竖向拉长的椭圆（木质外框 + 绿色毡面），对应参考图的竖版环桌 */
 .table-felt {
   position: absolute;
-  inset: 0;
-  border-radius: 26px;
-  background: radial-gradient(ellipse at center, rgba(38, 122, 74, 0.9), rgba(20, 74, 44, 0.95));
-  border: 6px solid rgba(94, 62, 32, 0.85);
-  box-shadow: inset 0 0 30px rgba(0, 0, 0, 0.45), 0 6px 18px rgba(0, 0, 0, 0.35);
+  inset: 2px 1%;
+  border-radius: 50% / 50%;
+  background:
+    radial-gradient(ellipse at 50% 42%, #2f8b56 0%, #1f6b41 55%, #14512f 100%);
+  border: 9px solid #5d3f22;
+  box-shadow:
+    0 0 0 3px rgba(24, 14, 6, 0.55),
+    inset 0 0 40px rgba(0, 0, 0, 0.45),
+    0 8px 22px rgba(0, 0, 0, 0.4);
   pointer-events: none;
 }
 .seat-grid {
@@ -356,14 +402,14 @@ input:focus {
 }
 .seat-avatar {
   position: relative;
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   margin: 0 auto;
-  border-radius: 50%;
+  border-radius: 9px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
   color: #eaf6f0;
   background: linear-gradient(180deg, #2a6b57, #17473a);
@@ -386,12 +432,14 @@ input:focus {
   background: linear-gradient(180deg, #a63a37, #6d2320);
   animation: pulse 1s ease infinite;
 }
-.seat.empty { opacity: 0.55; }
+.seat.empty { opacity: 0.8; }
 .seat-avatar.empty-avatar {
-  background: transparent;
-  border: 2px dashed var(--line);
+  background: rgba(6, 28, 22, 0.38);
+  border: 2px dashed rgba(255, 255, 255, 0.24);
   box-shadow: none;
 }
+/* 空位不显示「空位」文字，只留虚线方块（对应参考图的空格位） */
+.seat.empty .seat-label { display: none; }
 .mini-badge {
   position: absolute;
   top: -6px;
@@ -684,23 +732,23 @@ body:has(#room:not([hidden])) .toast.show { transform: translate(-50%, 0); }
   .table-hand.mine .mini-card + .mini-card { margin-left: -21px; }
   .table-hand.mine .mini-card b:first-of-type { font-size: 15.5px; }
   .table-hand.mine .mini-card b:last-of-type { font-size: 12.5px; }
-  .table-felt { inset: 0; border-radius: 18px; }
+  .table-felt { inset: 1px 0; border-width: 7px; }
   .seat-label { font-size: 10px; max-width: 52px; }
   .seat-score { font-size: 12.5px; }
   .score-float { font-size: 16px; }
   .brand h1 { font-size: 21px; }
-  /* 房间栏压成一行：房间号 + 玩法 + 图标按钮，把高度全部让给牌桌 */
-  .room-bar { padding: 7px 9px; gap: 8px; flex-wrap: nowrap; align-items: center; }
-  .room-code { font-size: 11.5px; }
-  .room-code strong { font-size: 16px; letter-spacing: 1px; }
-  .rules-btn { margin-left: 4px; padding: 3px 8px; font-size: 11px; }
-  .phase-info { display: none; }
-  .room-actions { gap: 5px; }
+  /* 顶部：标题+房间号一行，右侧按钮只留图标，局数行保留 */
+  .room-top { gap: 6px; padding: 2px 2px 3px; }
+  .room-name { display: none; }
+  .room-num { font-size: 14px; }
+  .room-actions { gap: 4px; }
   .room-actions .btn { padding: 5px 7px; font-size: 13px; line-height: 1; }
   .room-actions .btn-txt { display: none; }
-  /* 空位只留虚线圆，不显示「空位」文字，避免牌桌上出现无意义标签 */
-  .seat.empty .seat-label { display: none; }
+  .phase-info { font-size: 11px; }
+  .bbtn { width: 30px; height: 30px; font-size: 14px; }
+  .bottom-info { font-size: 12px; }
+  .bottom-info b { font-size: 13.5px; }
   /* 中央操作区下移一档：左右两侧玩家「竖排牌列」就在自己座位正前方，不再和按钮重叠 */
   .table-ready-btn, .table-rob-wrap, .table-reveal-wrap, .table-center-info { top: 59%; }
-  .table-status { top: calc(50% - 58px); font-size: 12px; padding: 4px 10px; }
+  .table-status { top: calc(50% - 60px); font-size: 14px; }
 }
