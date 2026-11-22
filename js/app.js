@@ -1094,6 +1094,74 @@
     return '';
   }
 
+  /**
+   * 把录音转成 16kHz 单声道 WAV。
+   * 各端 MediaRecorder 录出来的格式互不兼容（电脑 Chrome 是 webm/opus、iPhone 是 mp4/aac），
+   * 直接转发会出现「一边能听、一边完全没声音」，统一成 WAV 后所有浏览器都能播放。
+   */
+  function blobToWav(blob) {
+    return new Promise((resolve, reject) => {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC || !blob || !blob.arrayBuffer) { reject(new Error('不支持音频转换')); return; }
+      let ctx;
+      try { ctx = new AC(); } catch (e) { reject(e); return; }
+      const finish = (blobOut, err) => {
+        try { ctx.close(); } catch (e) { /* 忽略 */ }
+        if (err || !blobOut) reject(err || new Error('音频转换失败'));
+        else resolve(blobOut);
+      };
+      blob.arrayBuffer().then((buf) => {
+        let p;
+        try {
+          p = ctx.decodeAudioData(buf, (audioBuf) => {
+            try { finish(encodeWav(audioBuf)); } catch (e) { finish(null, e); }
+          }, () => finish(null, new Error('浏览器无法解码该录音')));
+        } catch (e) { finish(null, e); return; }
+        // 带回调时部分浏览器仍返回 Promise，屏蔽其 rejection 避免触发全局未捕获提示
+        if (p && p.catch) p.catch(() => {});
+      }).catch((e) => finish(null, e));
+    });
+  }
+
+  /** AudioBuffer → 16bit PCM WAV（重采样到 16kHz、下混为单声道） */
+  function encodeWav(buffer) {
+    const rate = 16000;
+    const chCount = Math.max(1, buffer.numberOfChannels || 1);
+    const chans = [];
+    for (let c = 0; c < chCount; c++) chans.push(buffer.getChannelData(c));
+    const srcLen = chans[0].length;
+    const ratio = (buffer.sampleRate || rate) / rate;
+    const len = Math.max(1, Math.floor(srcLen / ratio));
+    const bytes = 44 + len * 2;
+    const ab = new ArrayBuffer(bytes);
+    const view = new DataView(ab);
+    const putStr = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+    putStr(0, 'RIFF');
+    view.setUint32(4, bytes - 8, true);
+    putStr(8, 'WAVE');
+    putStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);      // PCM
+    view.setUint16(22, 1, true);      // 单声道
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    putStr(36, 'data');
+    view.setUint32(40, len * 2, true);
+    let off = 44;
+    for (let i = 0; i < len; i++) {
+      const idx = Math.min(srcLen - 1, Math.floor(i * ratio));
+      let sum = 0;
+      for (let c = 0; c < chCount; c++) sum += chans[c][idx] || 0;
+      let s = sum / chCount;
+      s = s < -1 ? -1 : (s > 1 ? 1 : s);
+      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      off += 2;
+    }
+    return new Blob([ab], { type: 'audio/wav' });
+  }
+
   /** 自己的头像：点击/按住即可录音 */
   function myAvatarEl() {
     return document.querySelector('#seatList .seat.me .seat-avatar');
@@ -1150,7 +1218,7 @@
     navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
       let rec;
       try {
-        rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 16000 } : { audioBitsPerSecond: 16000 });
+        rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 });
       } catch (e) {
         try { stream.getTracks().forEach((t) => t.stop()); } catch (err) { /* 忽略 */ }
         toast('录音初始化失败：' + errText(e), 'warn');
@@ -1173,23 +1241,26 @@
         voice.rec = null; voice.chunks = []; voice.stream = null;
         if (!blob.size) { toast('没录到声音，请重试', 'warn'); return; }
         if (secs > 9) { toast('语音太长，请控制在 8 秒内', 'warn'); return; }
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const data = String(reader.result).split(',')[1] || '';
-            if (!data) { toast('语音编码失败', 'error'); return; }
-            if (data.length > 280000) { toast('语音太大，发送失败', 'warn'); return; }
-            if (!Net.send({ t: 'voice', data: data, mime: blob.type, dur: secs })) {
-              toast('与房主连接中断，语音未发送', 'warn');
-              return;
+        // 统一转 WAV 再发（转不了就退回原始格式，不影响发送）
+        blobToWav(blob).then((wav) => (wav && wav.size ? wav : blob)).catch(() => blob).then((out) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            try {
+              const data = String(reader.result).split(',')[1] || '';
+              if (!data) { toast('语音编码失败', 'error'); return; }
+              if (data.length > 420000) { toast('语音太大，发送失败', 'warn'); return; }
+              if (!Net.send({ t: 'voice', data: data, mime: out.type, dur: secs })) {
+                toast('与房主连接中断，语音未发送', 'warn');
+                return;
+              }
+              toast('语音已发送（' + secs + 's）', 'ok');
+            } catch (e) {
+              toast('语音发送失败', 'error');
             }
-            toast('语音已发送（' + secs + 's）', 'ok');
-          } catch (e) {
-            toast('语音发送失败', 'error');
-          }
-        };
-        reader.onerror = () => toast('语音读取失败', 'error');
-        reader.readAsDataURL(blob);
+          };
+          reader.onerror = () => toast('语音读取失败', 'error');
+          reader.readAsDataURL(out);
+        });
       };
 
       rec.start();
@@ -1217,15 +1288,37 @@
       const bin = atob(String(msg.data || ''));
       const arr = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-      const url = URL.createObjectURL(new Blob([arr], { type: msg.mime || 'audio/webm' }));
-      const audio = new Audio(url);
-      audio.onended = () => { try { URL.revokeObjectURL(url); } catch (e) { /* 忽略 */ } };
-      const p = audio.play();
-      if (p && p.catch) {
-        p.catch(() => { toast('收到语音，点一下页面即可播放', 'warn'); });
-      }
+      const url = URL.createObjectURL(new Blob([arr], { type: msg.mime || 'audio/wav' }));
+      playVoiceUrl(url);
     } catch (e) { /* 忽略 */ }
   }
+
+  let pendingVoiceUrl = null;
+
+  function playVoiceUrl(url) {
+    let audio;
+    try { audio = new Audio(url); } catch (e) { return; }
+    const drop = () => { try { URL.revokeObjectURL(url); } catch (e) { /* 忽略 */ } };
+    audio.onended = drop;
+    audio.onerror = drop;
+    const p = audio.play();
+    if (p && p.catch) {
+      p.catch(() => {
+        // 被自动播放策略拦截：先存下来，等用户下一次点屏幕时立刻补播
+        if (pendingVoiceUrl) { try { URL.revokeObjectURL(pendingVoiceUrl); } catch (e) { /* 忽略 */ } }
+        pendingVoiceUrl = url;
+        toast('收好语音了，点一下屏幕播放', 'warn');
+      });
+    }
+  }
+
+  // 用户任意一次触摸/点击都用来补播被拦截的语音
+  document.addEventListener('pointerdown', () => {
+    const url = pendingVoiceUrl;
+    if (!url) return;
+    pendingVoiceUrl = null;
+    playVoiceUrl(url);
+  }, true);
 
   function stopVoiceIfAny() {
     try { if (voice.rec && voice.rec.state === 'recording') stopVoice(); } catch (e) { /* 忽略 */ }
